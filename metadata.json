@@ -1,0 +1,6 @@
+{
+  "name": "CHEMIZIC",
+  "description": "An educational chemistry web platform for searching chemicals, exploring structures, predicting reactions, and consulting a live interactive Periodic Table and AI Assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
