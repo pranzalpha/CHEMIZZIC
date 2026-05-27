@@ -84,3 +84,35 @@ export interface ExplainResponse {
   safetySummary: string;
   funFact: string;
 }
+
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  score: number;
+  xp: number;
+  level: number;
+  quizAttempts: number;
+  badges: string[];
+  joinedAt: string;
+  role: 'guest' | 'user' | 'admin';
+}
+
+export interface QuizQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  correctAnswer: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  topic: string;
+}
+
+export interface LeaderboardEntry {
+  userId: string;
+  username: string;
+  score: number;
+  level: number;
+  quizAttempts: number;
+  badges: string[];
+}
+

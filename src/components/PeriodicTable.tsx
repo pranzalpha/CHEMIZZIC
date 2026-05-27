@@ -30,7 +30,7 @@ export default function PeriodicTable({ onSearchElement }: ComponentProps) {
       case 'actinide':
         return `bg-purple-950/30 border-purple-900/60 text-purple-300 hover:bg-purple-900/30 ${activeRing}`;
       case 'transition-metal':
-        return `bg-slate-900/80 border-slate-755 text-slate-300 hover:bg-slate-800 ${activeRing}`;
+        return `bg-slate-900/80 border-slate-700 text-slate-300 hover:bg-slate-800 ${activeRing}`;
       case 'post-transition-metal':
         return `bg-zinc-900 border-zinc-700/80 text-zinc-350 hover:bg-zinc-800 ${activeRing}`;
       case 'metalloid':
@@ -38,7 +38,7 @@ export default function PeriodicTable({ onSearchElement }: ComponentProps) {
       case 'reactive-nonmetal':
         return `bg-emerald-950/40 border-emerald-900/60 text-emerald-300 hover:bg-emerald-900/30 ${activeRing}`;
       case 'noble-gas':
-        return `bg-sky-950/40 border-sky-905/60 text-sky-305 hover:bg-sky-900/30 ${activeRing}`;
+        return `bg-sky-950/40 border-sky-900/60 text-sky-300 hover:bg-sky-900/30 ${activeRing}`;
       default:
         return `bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 ${activeRing}`;
     }
@@ -211,7 +211,7 @@ export default function PeriodicTable({ onSearchElement }: ComponentProps) {
           </div>
 
           {/* Description overview paragraphs */}
-          <div className="text-xs text-slate-300 leading-relaxed bg-[#0A0B0E]/60 border border-slate-850 rounded-xl p-3 select-text">
+          <div className="text-xs text-slate-300 leading-relaxed bg-[#0A0B0E]/60 border border-slate-800 rounded-xl p-3 select-text">
             <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1 flex items-center gap-1">
               <ShieldAlert size={10} className="text-cyan-400" /> Educational Summary
             </h4>

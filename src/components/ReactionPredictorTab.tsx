@@ -72,7 +72,7 @@ export default function ReactionPredictorTab() {
             value={reactantsInput}
             onChange={(e) => setReactantsInput(e.target.value)}
             placeholder="Type reactants... (e.g. HCl + NaOH, Propane + Oxygen)"
-            className="flex-1 text-xs bg-[#0A0B0E] px-4 py-2.5 border border-slate-800 focus:border-cyan-500 focus:bg-[#0A0B0E] rounded-lg outline-none font-mono text-slate-205 font-semibold"
+            className="flex-1 text-xs bg-[#0A0B0E] px-4 py-2.5 border border-slate-800 focus:border-cyan-500 focus:bg-[#0A0B0E] rounded-lg outline-none font-mono text-slate-200 font-semibold"
           />
           <button
             type="submit"
