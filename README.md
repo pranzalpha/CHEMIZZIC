@@ -559,16 +559,19 @@ npm run typecheck   # or: node node_modules/typescript/bin/tsc --noEmit
 
 ---
 
-## 🧑‍💻 Team
+## 👥 Team
 
-### **CHEMIZZIC**
-Built with passion as an advanced student innovation project at the intersection of **Artificial Intelligence × Scientific Computing × Chemistry Education × Interactive Visualization**.
+### Prantik Das
+**Frontend and UI Developer**
 
-**Team Members**:
-* **Prantik Das** — *Lead Full-Stack & Systems Architecture*
-* **Agnidipta sarkar** — *AI Engineering & Scientific Computing*
-* **Shruti Saha** — *Interactive UI/UX & Simulation Engineering*
-* **Kuntal Banerjee** — *Chemistry Curriculum Architecture & Pedagogy*
+### Agnidipta Sarkar
+**Backend Developer**
+
+### Shruti Saha
+**Bug Detector and Tester**
+
+### Kuntal Banerjee
+**Researcher**
 
 ---
 
