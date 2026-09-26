@@ -75,6 +75,24 @@ export interface ReactionDetail {
   };
   keyInsights: string[];
   uses: string[];
+  conditionsUsed?: {
+    temperature: string;
+    pressure: string;
+    solvent: string;
+    catalyst: string;
+    atmosphere: string;
+    isDefaultAssumption?: boolean;
+    defaultAssumptionsSummary?: string;
+  };
+  conditionDependent?: boolean;
+  alternativePathways?: Array<{
+    condition: string;
+    equation: string;
+    products: string;
+    note: string;
+  }>;
+  verificationStatus?: 'VERIFIED' | 'CALCULATED' | 'PREDICTED' | 'AI-GENERATED' | 'DEFAULT ASSUMPTION';
+  confidence?: number;
 }
 
 export interface CompetitivePathway {
@@ -335,5 +353,158 @@ export interface ChatMessage {
   suggestions?: string[];
   stepByStepSolution?: string[];
   concept_id?: string;
+  source?: 'ai' | 'local_fallback';
+  isError?: boolean;
 }
+
+// ==========================================
+// SPACED REPETITION & 5-TIER DIFFICULTY TYPES
+// ==========================================
+export type GranularDifficultyLevel = 1 | 2 | 3 | 4 | 5; // 1=Beginner, 2=Easy, 3=Medium, 4=Hard, 5=Expert
+
+export interface SpacedRepetitionItem {
+  concept_id: string;
+  concept_name: string;
+  repetition_number: number;
+  interval_days: number;
+  ease_factor: number; // default ~2.5
+  last_reviewed: string;
+  next_review_date: string; // ISO date string YYYY-MM-DD
+  is_due: boolean;
+  retention_score: number; // 0 to 100
+}
+
+export interface QuestionHint {
+  level: 1 | 2 | 3 | 4; // 1: Conceptual clue, 2: Method/formula, 3: Partial reasoning, 4: Full solution
+  title: string;
+  content: string;
+}
+
+// ==========================================
+// EQUATION SOLVER & PERIODIC PREDICTOR TYPES
+// ==========================================
+export type VerificationStatus = 'VERIFIED' | 'CALCULATED' | 'PREDICTED' | 'AI-GENERATED';
+
+export interface EquationBalancingStep {
+  stepNumber: number;
+  description: string;
+  intermediateEquation: string;
+}
+
+export interface OxidationStateEntry {
+  element: string;
+  initialState: string;
+  finalState: string;
+  change: 'Oxidized' | 'Reduced' | 'Spectator';
+}
+
+export interface EquationSolverResult {
+  reactantsInput: string;
+  parsedReactants: string[];
+  predictedProducts: string[];
+  balancedEquation: string;
+  reactionType: string;
+  balancingSteps: EquationBalancingStep[];
+  oxidationStates: OxidationStateEntry[];
+  redoxDetails?: {
+    oxidizingAgent: string;
+    reducingAgent: string;
+    electronsTransferred: number;
+  };
+  explanation: string;
+  confidence: number; // 0 to 100
+  verificationStatus: VerificationStatus;
+  conditionsNeeded?: string;
+  isUncertain?: boolean;
+  uncertaintyReason?: string;
+}
+
+export interface PeriodicReactionResult {
+  elementA: string;
+  elementBOrReagent: string;
+  likelyProducts: string;
+  balancedEquation: string;
+  reactionType: string;
+  oxidationStates: string;
+  periodicTrends: string[];
+  reactivityExplanation: string;
+  conditions: string;
+  confidence: number;
+  verificationStatus: VerificationStatus;
+  source: string;
+}
+
+// ==========================================
+// PH METER LAB & REAL-WORLD DATA TYPES
+// ==========================================
+export type AcidBaseType = 'Strong Acid' | 'Weak Acid' | 'Strong Base' | 'Weak Base' | 'Neutral' | 'Salt' | 'Buffer';
+
+export interface PHCompoundData {
+  id: string;
+  name: string;
+  formula: string;
+  type: AcidBaseType;
+  ka?: number;
+  kb?: number;
+  pka?: number;
+  pkb?: number;
+  standardConcentration: number; // Molarity
+  theoreticalPH: number;
+  description: string;
+  safety: string;
+  applications: string[];
+}
+
+export interface PHCalculationResult {
+  compoundName: string;
+  formula: string;
+  type: AcidBaseType;
+  concentration: number; // M
+  volumeMl: number;
+  temperatureC: number;
+  calculatedPH: number;
+  pOH: number;
+  hConcentration: number;
+  ohConcentration: number;
+  methodUsed: string;
+  assumptions: string[];
+  dataSource: string;
+  confidence: number;
+  verificationStatus: VerificationStatus;
+}
+
+export interface RealWorldPHMeasurement {
+  id: string;
+  sampleName: string;
+  timestamp: string;
+  measuredPH: number;
+  theoreticalPH?: number;
+  temperature: number;
+  temperatureC?: number;
+  notes?: string;
+  formula?: string;
+  concentration?: number;
+  sensorError?: number;
+  operator?: string;
+}
+
+export interface DiagnosticQuizResult {
+  id: string;
+  timestamp: string;
+  studentId: string;
+  overallScore: number;
+  accuracy: number;
+  categoryScores: {
+    physical: number;
+    inorganic: number;
+    organic: number;
+  };
+  conceptScores: Record<string, number>;
+  weakestConcepts: string[];
+  strongestConcepts: string[];
+  recommendedLearningPath: string[];
+}
+
+export * from './types/curriculum';
+
 

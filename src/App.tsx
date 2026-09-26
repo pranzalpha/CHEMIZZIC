@@ -16,22 +16,76 @@ import { StudentAnalyticsDashboard } from './components/StudentAnalyticsDashboar
 import { TeacherAnalyticsDashboard } from './components/TeacherAnalyticsDashboard';
 import { DailyStreakActivityReport } from './components/DailyStreakActivityReport';
 import { AdminPortalDashboard } from './components/AdminPortalDashboard';
+import { KnowledgeGraphTab } from './components/KnowledgeGraphTab';
+import { EquationSolverTab } from './components/EquationSolverTab';
+import { PeriodicPredictorTab } from './components/PeriodicPredictorTab';
 import { GlobalAIChemistChatbot } from './components/GlobalAIChemistChatbot';
 import { AuthModal } from './components/AuthModal';
 import { useAuthAndQuiz } from './context/AuthAndQuizContext';
 import { ChemizicLogo } from './components/ChemizicLogo';
+import { CurriculumBrowserTab } from './components/CurriculumBrowserTab';
+import { MindMapTab } from './components/MindMapTab';
+import { GuessTheProductsTab } from './components/GuessTheProductsTab';
+import { NumericalSolverTab } from './components/NumericalSolverTab';
+import { InteractiveDaniellCell } from './components/InteractiveDaniellCell';
+import { UniversalSearchModal } from './components/UniversalSearchModal';
+import { StudentPersonaSwitcher } from './components/StudentPersonaSwitcher';
+import { ReactionMechanismTab } from './components/ReactionMechanismTab';
+import { GiveReasonTab } from './components/GiveReasonTab';
+import { OrganicConversionTab } from './components/OrganicConversionTab';
+import { FlashcardTab } from './components/FlashcardTab';
 import { 
   Search, FlaskConical, Scale, GraduationCap, Compass, BookOpen, 
   Settings, Check, Mail, Phone, MapPin, Sparkles, AlertTriangle, 
   CheckCircle2, Flame, AlertOctagon, HelpCircle, Activity, Beaker, Atom, Cpu,
-  Trophy, User, LogOut, ShieldAlert, Home, BarChart3, Users, Brain, Shield
+  Trophy, User, LogOut, ShieldAlert, Home, BarChart3, Users, Brain, Shield,
+  GitBranch, Binary, Command, Zap, HelpCircle as HelpQ, Layers
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function App() {
   const { currentUser, logout, recordFeatureUsage } = useAuthAndQuiz();
-  const [activeTab, setActiveTab] = useState<'home' | 'explorer' | 'periodic' | 'reaction' | 'chemist' | 'phmeter' | 'about' | 'quiz' | 'leaderboard' | 'student_analytics' | 'teacher_analytics' | 'daily_report' | 'admin_portal'>('home');
+  const [activeTab, setActiveTab] = useState<
+    | 'home'
+    | 'curriculum'
+    | 'mindmap'
+    | 'guess_products'
+    | 'numerical_solver'
+    | 'daniell_cell'
+    | 'explorer'
+    | 'periodic'
+    | 'reaction'
+    | 'periodic_predictor'
+    | 'equation_solver'
+    | 'knowledge_graph'
+    | 'chemist'
+    | 'phmeter'
+    | 'about'
+    | 'quiz'
+    | 'leaderboard'
+    | 'student_analytics'
+    | 'teacher_analytics'
+    | 'daily_report'
+    | 'admin_portal'
+    | 'mechanism'
+    | 'give_reason'
+    | 'organic_conversion'
+    | 'flashcards'
+  >('home');
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [universalSearchOpen, setUniversalSearchOpen] = useState(false);
+
+  // Keyboard shortcut Ctrl+K / Cmd+K for Universal Search Omnibar
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setUniversalSearchOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Target concept and difficulty when launching quiz from analytics
   const [adaptiveConceptTarget, setAdaptiveConceptTarget] = useState<string | undefined>(undefined);
@@ -201,29 +255,41 @@ export default function App() {
             <ChemizicLogo />
           </div>
 
-          {/* Unified search bar */}
-          <div className="w-full md:w-[440px] relative">
-            <form onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }} className="flex relative">
-              <input
-                type="text"
-                placeholder="Search compounds... (e.g. Water, Benzene, Caffeine, Methane)"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full text-xs bg-black/50 border border-cyan-500/20 pl-4 pr-12 py-2.5 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/30 rounded-xl outline-none font-medium text-cyan-100 transition-all placeholder:text-slate-600 shadow-[inset_0_0_12px_rgba(34,211,238,0.05)] font-mono"
-              />
-              <button
-                type="submit"
-                disabled={loading}
-                title="Search Compound Database"
-                className="absolute right-1 top-1 text-cyan-400 hover:text-cyan-300 p-1.5 bg-cyan-950/40 hover:bg-cyan-950/80 rounded-lg border border-cyan-500/20 hover:border-cyan-400/40 transition-all cursor-pointer disabled:opacity-40"
-              >
-                {loading ? (
-                  <span className="w-4 h-4 border-2 border-slate-705 border-t-cyan-400 rounded-full animate-spin block" />
-                ) : (
-                  <Search size={14} />
-                )}
-              </button>
-            </form>
+          {/* Unified search bar & Universal Omnibar Trigger */}
+          <div className="flex items-center gap-2 w-full md:w-auto flex-1 max-w-xl">
+            <button
+              onClick={() => setUniversalSearchOpen(true)}
+              className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-cyan-950/70 to-indigo-950/70 hover:from-cyan-900/80 hover:to-indigo-900/80 border border-cyan-500/40 hover:border-cyan-400 text-cyan-200 rounded-xl font-mono text-xs transition shadow-md shadow-cyan-950/30 cursor-pointer shrink-0"
+              title="Open Universal Chemistry Omnibar (Ctrl+K)"
+            >
+              <Search size={14} className="text-cyan-400 animate-pulse" />
+              <span className="font-bold hidden sm:inline">Universal Omnibar</span>
+              <kbd className="text-[10px] bg-black/60 border border-slate-700 px-1.5 py-0.5 rounded text-slate-400 font-mono">Ctrl+K</kbd>
+            </button>
+
+            <div className="w-full relative">
+              <form onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }} className="flex relative">
+                <input
+                  type="text"
+                  placeholder="Quick compound lookup (e.g. Water, Benzene)..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full text-xs bg-black/50 border border-cyan-500/20 pl-4 pr-10 py-2.5 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/30 rounded-xl outline-none font-medium text-cyan-100 transition-all placeholder:text-slate-600 shadow-[inset_0_0_12px_rgba(34,211,238,0.05)] font-mono"
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  title="Search Compound Database"
+                  className="absolute right-1 top-1 text-cyan-400 hover:text-cyan-300 p-1.5 bg-cyan-950/40 hover:bg-cyan-950/80 rounded-lg border border-cyan-500/20 hover:border-cyan-400/40 transition-all cursor-pointer disabled:opacity-40"
+                >
+                  {loading ? (
+                    <span className="w-4 h-4 border-2 border-slate-705 border-t-cyan-400 rounded-full animate-spin block" />
+                  ) : (
+                    <Search size={14} />
+                  )}
+                </button>
+              </form>
+            </div>
           </div>
 
           {/* Dynamic Auth Widget / Profile dashboard trigger */}
@@ -264,16 +330,28 @@ export default function App() {
           <div className="flex gap-1 overflow-x-auto py-2 scrollbar-none">
             {[
               { id: 'home', label: 'Home Hub', icon: Home },
+              { id: 'curriculum', label: 'Curriculum 📚', icon: BookOpen },
+              { id: 'quiz', label: 'Diagnostic & Quiz 🎮', icon: Sparkles },
+              { id: 'mindmap', label: 'Mind Maps 🧠', icon: Brain },
+              { id: 'guess_products', label: 'Guess Products 🎯', icon: Flame },
+              { id: 'numerical_solver', label: 'Numerical Solver 🔢', icon: Binary },
+              { id: 'daniell_cell', label: 'Daniell Cell Lab ⚡', icon: Cpu },
               { id: 'student_analytics', label: 'Student Analytics 📊', icon: BarChart3 },
               { id: 'teacher_analytics', label: 'Teacher Portal 🧑‍🏫', icon: Users },
-              { id: 'admin_portal', label: 'Admin Portal 🛡️', icon: Shield },
-              { id: 'quiz', label: 'Quiz Arena 🎮', icon: Sparkles },
-              { id: 'explorer', label: 'Structure Explorer', icon: FlaskConical },
+              { id: 'knowledge_graph', label: 'Knowledge Graph 🌐', icon: GitBranch },
+              { id: 'equation_solver', label: 'Equation Solver ⚖️', icon: Scale },
+              { id: 'reaction', label: 'AI Reaction Predictor', icon: Flame },
+              { id: 'periodic_predictor', label: 'Periodic Predictor ⚛️', icon: Atom },
+              { id: 'phmeter', label: 'Virtual pH Lab 🧪', icon: Beaker },
+              { id: 'chemist', label: 'AI Chemist Tutor 🎓', icon: GraduationCap },
               { id: 'periodic', label: 'Periodic Table Explorer', icon: Compass },
-              { id: 'reaction', label: 'AI Reaction Predictor', icon: Scale },
-              { id: 'phmeter', label: 'pH Meter Lab 🧪', icon: Beaker },
-              { id: 'chemist', label: 'AI Chemist Tutor', icon: GraduationCap },
+              { id: 'explorer', label: 'Structure Explorer', icon: FlaskConical },
               { id: 'leaderboard', label: 'Rankings 🏆', icon: Trophy },
+              { id: 'mechanism', label: 'Mechanisms ⚡', icon: Zap },
+              { id: 'give_reason', label: 'Give Reason 🔍', icon: HelpQ },
+              { id: 'organic_conversion', label: 'Organic Lab 🧫', icon: FlaskConical },
+              { id: 'flashcards', label: 'Flashcards 📇', icon: Layers },
+              { id: 'admin_portal', label: 'Admin Portal 🛡️', icon: Shield },
               { id: 'about', label: 'Documentation & Info', icon: BookOpen }
             ].map(tab => {
               const Icon = tab.icon;
@@ -299,6 +377,90 @@ export default function App() {
       {/* CORE WORKSPACE SCREEN CONTAINER */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 relative z-10">
         
+        {/* Two-Student Deterministic Demo Persona Switcher Banner */}
+        <StudentPersonaSwitcher />
+
+        {/* TAB WORKSPACE: Curriculum Browser across 6 Tracks */}
+        {activeTab === 'curriculum' && (
+          <CurriculumBrowserTab onLaunchPractice={(topic, concept) => {
+            setActiveTab('quiz');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }} />
+        )}
+
+        {/* TAB WORKSPACE: AI Mind Map Generator */}
+        {activeTab === 'mindmap' && (
+          <MindMapTab onLaunchPractice={(conceptId) => {
+            handleStartAdaptivePractice(conceptId, 'medium');
+          }} />
+        )}
+
+        {/* TAB WORKSPACE: Guess The Products Dedicated Game Mode */}
+        {activeTab === 'guess_products' && (
+          <GuessTheProductsTab />
+        )}
+
+        {/* TAB WORKSPACE: AI & Programmatic Numerical Solver */}
+        {activeTab === 'numerical_solver' && (
+          <NumericalSolverTab />
+        )}
+
+        {/* TAB WORKSPACE: Interactive Daniell Cell Galvanic Simulator */}
+        {activeTab === 'daniell_cell' && (
+          <div className="space-y-6">
+            <div className="bg-[#111318] border border-cyan-500/20 rounded-2xl p-6">
+              <h2 className="text-xl font-bold text-white mb-2 font-mono flex items-center gap-2">
+                <Cpu className="text-cyan-400" /> Interactive Galvanic Daniell Cell Simulator
+              </h2>
+              <p className="text-xs text-slate-400 mb-6">
+                Explore dynamic electron flow, ion migration across the salt bridge, and real-time Nernst cell potential calculations for Zn | Zn²⁺ || Cu²⁺ | Cu.
+              </p>
+              <InteractiveDaniellCell />
+            </div>
+          </div>
+        )}
+
+        {/* TAB WORKSPACE: Reaction Mechanism Explainer */}
+        {activeTab === 'mechanism' && (
+          <ReactionMechanismTab
+            onAskAI={(context) => {
+              setActiveTab('chemist');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        )}
+
+        {/* TAB WORKSPACE: Give Reason Engine */}
+        {activeTab === 'give_reason' && (
+          <GiveReasonTab
+            onAskAI={(context) => {
+              setActiveTab('chemist');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        )}
+
+        {/* TAB WORKSPACE: Organic Conversion Lab */}
+        {activeTab === 'organic_conversion' && (
+          <OrganicConversionTab
+            onAskAI={(context) => {
+              setActiveTab('chemist');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        )}
+
+        {/* TAB WORKSPACE: AI Revision Flashcards */}
+        {activeTab === 'flashcards' && (
+          <FlashcardTab
+            onAskAI={(context) => {
+              setActiveTab('chemist');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        )}
+
+
         {/* TAB WORKSPACE 0: Centralized Home Hub & Portal Dashboard */}
         {activeTab === 'home' && (
           <motion.div 
@@ -465,6 +627,42 @@ export default function App() {
                     glow: 'bg-rose-500/10',
                     tag: 'SCHOLAR BOARD',
                     bullets: ['Real-time scoreboard ranking', 'XP accumulation system', 'Ascend levels with academic credentials']
+                  },
+                  {
+                    id: 'mechanism',
+                    title: 'Reaction Mechanism Explainer ⚡',
+                    icon: Zap,
+                    color: 'text-indigo-300 border-indigo-500/30 hover:border-indigo-400 hover:shadow-[0_0_20px_rgba(99,102,241,0.15)]',
+                    glow: 'bg-indigo-500/10',
+                    tag: 'STEP-BY-STEP',
+                    bullets: ['SN1, SN2, E2, EAS, Esterification', 'Electron movement visualization', 'Interactive step controls']
+                  },
+                  {
+                    id: 'give_reason',
+                    title: 'Give Reason Engine 🔍',
+                    icon: HelpQ,
+                    color: 'text-violet-300 border-violet-500/30 hover:border-violet-400 hover:shadow-[0_0_20px_rgba(139,92,246,0.15)]',
+                    glow: 'bg-violet-500/10',
+                    tag: 'ANOMALY EXPLAINER',
+                    bullets: ['Water vs H₂S boiling point', 'Transition metal colours', 'One-line board exam answers']
+                  },
+                  {
+                    id: 'organic_conversion',
+                    title: 'Organic Conversion Lab 🧫',
+                    icon: FlaskConical,
+                    color: 'text-emerald-300 border-emerald-500/30 hover:border-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.15)]',
+                    glow: 'bg-emerald-500/10',
+                    tag: 'SYNTHESIS ROUTES',
+                    bullets: ['Ethanol → Ethanoic Acid route', 'Benzene → Aniline → Dyes', 'Why this reagent? Explained']
+                  },
+                  {
+                    id: 'flashcards',
+                    title: 'AI Revision Flashcards 📇',
+                    icon: Layers,
+                    color: 'text-pink-300 border-pink-500/30 hover:border-pink-400 hover:shadow-[0_0_20px_rgba(236,72,153,0.15)]',
+                    glow: 'bg-pink-500/10',
+                    tag: 'SPACED REPETITION',
+                    bullets: ['3D flip animation cards', 'Track Known / Learning / Review', 'AI generates custom decks']
                   }
                 ].map((item, idx) => {
                   const Icon = item.icon;
@@ -883,6 +1081,25 @@ export default function App() {
           <ReactionPredictorTab />
         )}
 
+        {/* TAB WORKSPACE: Advanced Chemical Equation Solver (Phase 12) */}
+        {activeTab === 'equation_solver' && (
+          <EquationSolverTab />
+        )}
+
+        {/* TAB WORKSPACE: Periodic Reaction & Trends Predictor (Phase 13) */}
+        {activeTab === 'periodic_predictor' && (
+          <PeriodicPredictorTab />
+        )}
+
+        {/* TAB WORKSPACE: Concept Prerequisite Knowledge Graph (Phase 17) */}
+        {activeTab === 'knowledge_graph' && (
+          <KnowledgeGraphTab 
+            onStartPractice={(conceptId) => {
+              handleStartAdaptivePractice(conceptId, 'medium');
+            }}
+          />
+        )}
+
         {/* TAB WORKSPACE 4: AI Chemist conversational academic helper */}
         {activeTab === 'chemist' && (
           <AIChemistTab />
@@ -1117,6 +1334,16 @@ export default function App() {
       </main>
 
       <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
+
+      {/* Universal Search Omnibar Modal */}
+      <UniversalSearchModal
+        isOpen={universalSearchOpen}
+        onClose={() => setUniversalSearchOpen(false)}
+        onNavigateToTab={(tab, detail) => {
+          setActiveTab(tab as any);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+      />
 
       {/* FLOATING PERSISTENT AI CHEMIST TUTOR CHATBOT ACROSS THE ENTIRE PAGE */}
       <GlobalAIChemistChatbot currentTabContext={activeTab} />

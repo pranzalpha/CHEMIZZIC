@@ -229,11 +229,11 @@ export function generateRecommendations(
  */
 export function createDefaultConceptMasteries(
   studentId: string, 
-  presetBias: 'average' | 'strong' | 'weak' = 'average'
+  presetBias: 'average' | 'strong' | 'weak' | 'student_a' | 'student_b' = 'average'
 ): Record<string, ConceptMastery> {
   const masteries: Record<string, ConceptMastery> = {};
 
-  const baseValues: Record<string, number> = {
+  let baseValues: Record<string, number> = {
     atomic_structure: presetBias === 'strong' ? 88 : presetBias === 'weak' ? 52 : 78,
     quantum_numbers: presetBias === 'strong' ? 82 : presetBias === 'weak' ? 44 : 68,
     periodic_properties: presetBias === 'strong' ? 91 : presetBias === 'weak' ? 58 : 82,
@@ -246,10 +246,42 @@ export function createDefaultConceptMasteries(
     organic_chemistry: presetBias === 'strong' ? 80 : presetBias === 'weak' ? 45 : 69,
   };
 
+  // Student A: Strong in Atomic Structure & Bonding, Weak in Electrochemistry
+  if (presetBias === 'student_a') {
+    baseValues = {
+      atomic_structure: 92,
+      quantum_numbers: 85,
+      periodic_properties: 89,
+      chemical_bonding: 91,
+      molecular_structure: 86,
+      thermodynamics: 64,
+      chemical_equilibrium: 62,
+      acids_and_bases: 70,
+      electrochemistry: 28, // Weak point: needs Electrochemistry path
+      organic_chemistry: 72,
+    };
+  }
+
+  // Student B: Strong in Electrochemistry & Thermodynamics, Weak in Chemical Bonding
+  if (presetBias === 'student_b') {
+    baseValues = {
+      atomic_structure: 65,
+      quantum_numbers: 62,
+      periodic_properties: 68,
+      chemical_bonding: 24, // Weak point: needs Chemical Bonding path
+      molecular_structure: 31, // Prerequisite/extension also weak
+      thermodynamics: 88,
+      chemical_equilibrium: 82,
+      acids_and_bases: 84,
+      electrochemistry: 95, // Strong point
+      organic_chemistry: 75,
+    };
+  }
+
   CHEMISTRY_CONCEPTS.forEach(concept => {
     const score = baseValues[concept.id] || 60;
     const difficulty: ConceptDifficulty = score >= 75 ? 'hard' : score < 50 ? 'easy' : 'medium';
-    const attempts = presetBias === 'strong' ? 18 : presetBias === 'weak' ? 12 : 14;
+    const attempts = (presetBias === 'strong' || presetBias === 'student_a' || presetBias === 'student_b') ? 18 : presetBias === 'weak' ? 12 : 14;
     const correct_attempts = Math.round(attempts * (score / 100));
 
     masteries[concept.id] = {
@@ -270,9 +302,115 @@ export function createDefaultConceptMasteries(
 }
 
 /**
+ * Helper to build complete student profile for Student A demo
+ */
+export function getStudentADemoProfile(): StudentProfile {
+  const masteries = createDefaultConceptMasteries('std_alex', 'student_a');
+  const attempts: StudentAttempt[] = [
+    {
+      attempt_id: 'att_a1',
+      student_id: 'std_alex',
+      question_id: 'q_demo_ec1',
+      concept_id: 'electrochemistry',
+      selected_answer: 'Incorrect EMF quotient',
+      correct: false,
+      difficulty: 'medium',
+      timestamp: new Date(Date.now() - 3600000 * 4).toISOString()
+    },
+    {
+      attempt_id: 'att_a2',
+      student_id: 'std_alex',
+      question_id: 'q_demo_ec2',
+      concept_id: 'electrochemistry',
+      selected_answer: 'Failed Salt Bridge direction',
+      correct: false,
+      difficulty: 'easy',
+      timestamp: new Date(Date.now() - 3600000 * 2).toISOString()
+    },
+    {
+      attempt_id: 'att_a3',
+      student_id: 'std_alex',
+      question_id: 'q_demo_cb1',
+      concept_id: 'chemical_bonding',
+      selected_answer: 'Tetrahedral sp3 (Correct)',
+      correct: true,
+      difficulty: 'hard',
+      timestamp: new Date(Date.now() - 3600000 * 6).toISOString()
+    }
+  ];
+  return {
+    student_id: 'std_alex',
+    name: 'Alex Turner (Student A)',
+    class: 'Class 12 - Section B',
+    overall_mastery: calculateOverallMastery(masteries),
+    streak: 6,
+    total_questions: 114,
+    total_correct: 88,
+    last_active: new Date(Date.now() - 3600000 * 2).toISOString(),
+    masteries,
+    recommendations: generateRecommendations('std_alex', masteries, attempts),
+    attemptsHistory: attempts
+  };
+}
+
+/**
+ * Helper to build complete student profile for Student B demo
+ */
+export function getStudentBDemoProfile(): StudentProfile {
+  const masteries = createDefaultConceptMasteries('std_riya', 'student_b');
+  const attempts: StudentAttempt[] = [
+    {
+      attempt_id: 'att_b1',
+      student_id: 'std_riya',
+      question_id: 'q_demo_cb1',
+      concept_id: 'chemical_bonding',
+      selected_answer: 'Incorrect geometry VSEPR',
+      correct: false,
+      difficulty: 'easy',
+      timestamp: new Date(Date.now() - 3600000 * 3).toISOString()
+    },
+    {
+      attempt_id: 'att_b2',
+      student_id: 'std_riya',
+      question_id: 'q_demo_cb2',
+      concept_id: 'chemical_bonding',
+      selected_answer: 'Confused sigma and pi bonds',
+      correct: false,
+      difficulty: 'medium',
+      timestamp: new Date(Date.now() - 3600000 * 1).toISOString()
+    },
+    {
+      attempt_id: 'att_b3',
+      student_id: 'std_riya',
+      question_id: 'q_demo_ec1',
+      concept_id: 'electrochemistry',
+      selected_answer: '+1.10 V Standard Daniell (Correct)',
+      correct: true,
+      difficulty: 'hard',
+      timestamp: new Date(Date.now() - 3600000 * 5).toISOString()
+    }
+  ];
+  return {
+    student_id: 'std_riya',
+    name: 'Riya Sen (Student B)',
+    class: 'Class 12 - Section B',
+    overall_mastery: calculateOverallMastery(masteries),
+    streak: 9,
+    total_questions: 142,
+    total_correct: 122,
+    last_active: new Date(Date.now() - 3600000 * 1).toISOString(),
+    masteries,
+    recommendations: generateRecommendations('std_riya', masteries, attempts),
+    attemptsHistory: attempts
+  };
+}
+
+/**
  * Pre-seeded realistic student roster for Teacher Analytics & Class Heatmap
  */
 export const PRESET_CLASSROOM_STUDENTS: StudentProfile[] = [
+  getStudentADemoProfile(),
+  getStudentBDemoProfile(),
   {
     student_id: 'std_alex',
     name: 'Alex Turner',

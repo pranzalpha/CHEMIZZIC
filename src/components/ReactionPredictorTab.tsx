@@ -22,37 +22,70 @@ export default function ReactionPredictorTab() {
   // ==========================================
   // MODE 1: UNIVERSAL REACTION PREDICTOR STATE
   // ==========================================
-  const [reactantsInput, setReactantsInput] = useState<string>('CH4 + O2');
+  const [reactantsInput, setReactantsInput] = useState<string>('Na + H2O');
   const [loadingPredict, setLoadingPredict] = useState<boolean>(false);
   const [predictResult, setPredictResult] = useState<ReactionDetail | null>(null);
   const [predictError, setPredictError] = useState<string | null>(null);
 
-  // Predefined reaction examples for every compound class
+  // Reaction Conditions Panel state
+  const [showConditionsPanel, setShowConditionsPanel] = useState<boolean>(false);
+  const [useStandardConditions, setUseStandardConditions] = useState<boolean>(true);
+  const [condTemp, setCondTemp] = useState<string>('25 °C');
+  const [condPressure, setCondPressure] = useState<string>('1 atm');
+  const [condSolvent, setCondSolvent] = useState<string>('Water / Aqueous');
+  const [condConcentration, setCondConcentration] = useState<string>('1.0 M');
+  const [condCatalyst, setCondCatalyst] = useState<string>('None');
+  const [condReagent, setCondReagent] = useState<string>('Stoichiometric');
+  const [condLight, setCondLight] = useState<string>('None (Ambient)');
+  const [condAtmosphere, setCondAtmosphere] = useState<string>('Ambient Air');
+  const [condReactionTime, setCondReactionTime] = useState<string>('Immediate');
+  const [condPhase, setCondPhase] = useState<string>('Aqueous / Solution');
+
+  // Predefined reaction examples covering inorganic, organic, and condition-dependent benchmarks
   const universalExamples = [
+    { label: "Na + H2O", text: "Na + H2O", category: "Displacement / Redox" },
+    { label: "HCl + NaOH", text: "HCl + NaOH", category: "Neutralization" },
+    { label: "Mg + O2", text: "Mg + O2", category: "Combustion / Redox" },
+    { label: "CaCO3 (Calcination)", text: "CaCO3", category: "Thermal Decomposition" },
+    { label: "CH3COOH + NaOH", text: "CH3COOH + NaOH", category: "Weak Acid-Base" },
+    { label: "CH3Br + NaOH (SN2)", text: "CH3Br + NaOH", category: "Nucleophilic Substitution" },
+    { label: "KMnO4 + HCl", text: "KMnO4 + HCl", category: "Permanganate Redox" },
+    { label: "Ethanol + H2SO4 (Condition Dependent)", text: "Ethanol + H2SO4", category: "Elimination vs Ether" },
     { label: "Methane Combustion", text: "CH4 + O2", category: "Combustion" },
-    { label: "Single Compound: Caffeine", text: "Caffeine", category: "Bio-Organic" },
-    { label: "Single Compound: Ethanol", text: "Ethanol", category: "Organic" },
-    { label: "Acid-Base Neutralization", text: "HCl + NaOH", category: "Neutralization" },
-    { label: "Haber-Bosch Nitrogen Fixation", text: "N2 + H2", category: "Industrial Redox" },
-    { label: "Photosynthesis Biosynthesis", text: "CO2 + H2O", category: "Biochemistry" },
-    { label: "Aspirin Hydrolysis", text: "Acetylsalicylic acid + H2O", category: "Pharmaceutical" },
-    { label: "Thermite Energetics", text: "Fe2O3 + Al", category: "High Exotherm" },
-    { label: "Benzene Nitration", text: "Benzene + HNO3", category: "Aromatic Substitution" }
+    { label: "Haber-Bosch", text: "N2 + H2", category: "Industrial" }
   ];
 
-  const handlePredict = async (inputStr: string) => {
+  const handlePredict = async (inputStr?: string, forceStandard?: boolean) => {
     const reactants = (inputStr || reactantsInput || '').trim();
     if (!reactants) return;
+
+    const isStandard = forceStandard !== undefined ? forceStandard : useStandardConditions;
 
     setLoadingPredict(true);
     setPredictError(null);
     setPredictResult(null);
 
+    const conditionsPayload = isStandard ? undefined : {
+      temperature: condTemp,
+      pressure: condPressure,
+      solvent: condSolvent,
+      concentration: condConcentration,
+      catalyst: condCatalyst,
+      reagent: condReagent,
+      light: condLight,
+      atmosphere: condAtmosphere,
+      reactionTime: condReactionTime,
+      phase: condPhase
+    };
+
     try {
       const response = await fetch('/api/reaction/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reactants })
+        body: JSON.stringify({ 
+          reactants,
+          conditions: conditionsPayload
+        })
       });
 
       if (!response.ok) {
@@ -212,6 +245,155 @@ export default function ReactionPredictorTab() {
                   )}
                   Predict Reactions
                 </button>
+              </div>
+
+              {/* Optional Reaction Conditions Panel & Standard Conditions Toggle */}
+              <div className="p-3 bg-black/40 border border-slate-800 rounded-xl space-y-3 font-mono text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setUseStandardConditions(!useStandardConditions)}
+                      className={`px-3 py-1.5 rounded-lg border text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        useStandardConditions
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40 shadow-sm'
+                          : 'bg-slate-900 border-slate-700 text-slate-400'
+                      }`}
+                    >
+                      <Check size={12} className={useStandardConditions ? 'text-emerald-400' : 'opacity-0'} />
+                      Use Standard Conditions (25 °C, 1 atm, Ambient)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUseStandardConditions(true);
+                        handlePredict(reactantsInput, true);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold transition-all cursor-pointer"
+                    >
+                      Apply Standard & Predict
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowConditionsPanel(!showConditionsPanel)}
+                    className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer underline"
+                  >
+                    <Sliders size={12} />
+                    {showConditionsPanel ? 'Hide Conditions Panel ▲' : 'Reaction Conditions Panel (Optional) ▼'}
+                  </button>
+                </div>
+
+                {/* Collapsible 10-Field Conditions Panel */}
+                {showConditionsPanel && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-2 border-t border-slate-800 text-[11px]"
+                  >
+                    <div>
+                      <label className="text-[10px] text-slate-500 uppercase block mb-1">Temperature:</label>
+                      <input
+                        type="text"
+                        value={condTemp}
+                        onChange={(e) => { setCondTemp(e.target.value); setUseStandardConditions(false); }}
+                        placeholder="e.g. 25 °C, 170 °C"
+                        className="w-full bg-[#111318] border border-slate-800 rounded-lg p-1.5 text-cyan-200 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500 uppercase block mb-1">Pressure:</label>
+                      <input
+                        type="text"
+                        value={condPressure}
+                        onChange={(e) => { setCondPressure(e.target.value); setUseStandardConditions(false); }}
+                        placeholder="e.g. 1 atm, 50 atm"
+                        className="w-full bg-[#111318] border border-slate-800 rounded-lg p-1.5 text-cyan-200 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500 uppercase block mb-1">Solvent:</label>
+                      <input
+                        type="text"
+                        value={condSolvent}
+                        onChange={(e) => { setCondSolvent(e.target.value); setUseStandardConditions(false); }}
+                        placeholder="e.g. Water, Acetone, DCM"
+                        className="w-full bg-[#111318] border border-slate-800 rounded-lg p-1.5 text-cyan-200 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500 uppercase block mb-1">Concentration:</label>
+                      <input
+                        type="text"
+                        value={condConcentration}
+                        onChange={(e) => { setCondConcentration(e.target.value); setUseStandardConditions(false); }}
+                        placeholder="e.g. 1.0 M, Dilute, Conc."
+                        className="w-full bg-[#111318] border border-slate-800 rounded-lg p-1.5 text-cyan-200 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500 uppercase block mb-1">Catalyst:</label>
+                      <input
+                        type="text"
+                        value={condCatalyst}
+                        onChange={(e) => { setCondCatalyst(e.target.value); setUseStandardConditions(false); }}
+                        placeholder="e.g. H2SO4, Fe, Pt"
+                        className="w-full bg-[#111318] border border-slate-800 rounded-lg p-1.5 text-cyan-200 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500 uppercase block mb-1">Reagent Ratio:</label>
+                      <input
+                        type="text"
+                        value={condReagent}
+                        onChange={(e) => { setCondReagent(e.target.value); setUseStandardConditions(false); }}
+                        placeholder="e.g. Excess, 1:1"
+                        className="w-full bg-[#111318] border border-slate-800 rounded-lg p-1.5 text-cyan-200 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500 uppercase block mb-1">Light / Radiation:</label>
+                      <input
+                        type="text"
+                        value={condLight}
+                        onChange={(e) => { setCondLight(e.target.value); setUseStandardConditions(false); }}
+                        placeholder="e.g. None, UV hv"
+                        className="w-full bg-[#111318] border border-slate-800 rounded-lg p-1.5 text-cyan-200 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500 uppercase block mb-1">Atmosphere:</label>
+                      <input
+                        type="text"
+                        value={condAtmosphere}
+                        onChange={(e) => { setCondAtmosphere(e.target.value); setUseStandardConditions(false); }}
+                        placeholder="e.g. Air, N2, Argon"
+                        className="w-full bg-[#111318] border border-slate-800 rounded-lg p-1.5 text-cyan-200 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500 uppercase block mb-1">Reaction Time:</label>
+                      <input
+                        type="text"
+                        value={condReactionTime}
+                        onChange={(e) => { setCondReactionTime(e.target.value); setUseStandardConditions(false); }}
+                        placeholder="e.g. Immediate, 2h"
+                        className="w-full bg-[#111318] border border-slate-800 rounded-lg p-1.5 text-cyan-200 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500 uppercase block mb-1">Phase:</label>
+                      <input
+                        type="text"
+                        value={condPhase}
+                        onChange={(e) => { setCondPhase(e.target.value); setUseStandardConditions(false); }}
+                        placeholder="e.g. Aqueous, Solid, Gas"
+                        className="w-full bg-[#111318] border border-slate-800 rounded-lg p-1.5 text-cyan-200 outline-none"
+                      />
+                    </div>
+                  </motion.div>
+                )}
               </div>
             </form>
 
@@ -383,14 +565,54 @@ export default function ReactionPredictorTab() {
         <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
-          className="space-y-6"
+          className="space-y-4"
         >
+          {/* Default Assumptions Banner */}
+          {predictResult.conditionsUsed?.isDefaultAssumption && (
+            <div className="p-3 bg-amber-950/20 border border-amber-500/40 rounded-xl text-amber-200 text-xs font-mono flex items-center gap-2.5">
+              <span className="px-2 py-0.5 rounded bg-amber-500/30 text-amber-300 border border-amber-400/50 text-[10px] font-bold shrink-0">
+                DEFAULT ASSUMPTION
+              </span>
+              <span>
+                {predictResult.conditionsUsed.defaultAssumptionsSummary || "Conditions not provided. Using default standard assumptions: 25 °C, 1 atm, standard ambient aqueous medium."}
+              </span>
+            </div>
+          )}
+
+          {/* Condition Dependent Reaction Alternatives */}
+          {predictResult.conditionDependent && (
+            <div className="p-4 bg-purple-950/30 border border-purple-500/40 rounded-2xl space-y-3 font-mono text-xs">
+              <div className="flex items-center gap-2 text-purple-300 font-bold text-sm">
+                <AlertCircle size={16} className="text-purple-400 shrink-0" />
+                <span>Product prediction depends on reaction conditions!</span>
+              </div>
+              <p className="text-slate-300 text-xs font-sans">
+                Operating parameters such as temperature, solvent, or catalyst divert this reaction between different distinct chemical pathways:
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                {predictResult.alternativePathways?.map((path, pIdx) => (
+                  <div key={pIdx} className="p-3.5 rounded-xl bg-black/40 border border-purple-500/30 space-y-1.5">
+                    <div className="text-[10px] text-purple-400 font-bold uppercase">{path.condition}</div>
+                    <div className="text-cyan-300 font-bold text-sm">{path.equation}</div>
+                    <div className="text-emerald-300 text-xs font-bold">→ Products: {path.products}</div>
+                    <div className="text-slate-400 text-[11px] leading-relaxed font-sans">{path.note}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Main Balanced Reaction Card */}
           <div className="bg-gradient-to-r from-cyan-950/30 via-[#111318] to-purple-950/20 border border-cyan-500/30 rounded-2xl p-6 shadow-xl space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 uppercase">
-                {predictResult.reactionType}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 uppercase">
+                  {predictResult.reactionType}
+                </span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 uppercase">
+                  PREDICTED
+                </span>
+              </div>
               <span className={`px-3 py-1 rounded-full text-xs font-mono font-bold border ${
                 predictResult.thermalType === 'Exothermic' 
                   ? 'bg-rose-950/40 text-rose-300 border-rose-500/30' 
@@ -399,6 +621,18 @@ export default function ReactionPredictorTab() {
                 {predictResult.thermalType} Reaction (ΔH: {predictResult.energyChange})
               </span>
             </div>
+
+            {/* Conditions Applied Bar */}
+            {predictResult.conditionsUsed && (
+              <div className="p-3 bg-black/40 border border-slate-800 rounded-xl font-mono text-[11px] flex flex-wrap gap-x-4 gap-y-1 text-slate-400">
+                <span className="text-slate-500 uppercase font-bold text-[10px] block w-full mb-0.5">Conditions Applied:</span>
+                <span>Temp: <strong className="text-cyan-300">{predictResult.conditionsUsed.temperature}</strong></span>
+                <span>Pressure: <strong className="text-cyan-300">{predictResult.conditionsUsed.pressure}</strong></span>
+                <span>Solvent: <strong className="text-cyan-300">{predictResult.conditionsUsed.solvent}</strong></span>
+                <span>Catalyst: <strong className="text-cyan-300">{predictResult.conditionsUsed.catalyst}</strong></span>
+                <span>Atmosphere: <strong className="text-cyan-300">{predictResult.conditionsUsed.atmosphere}</strong></span>
+              </div>
+            )}
 
             {/* Glowing Equation Display */}
             <div className="p-4 rounded-xl bg-black/60 border border-cyan-500/30 text-center font-mono select-all shadow-[inset_0_0_20px_rgba(34,211,238,0.05)]">

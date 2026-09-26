@@ -474,7 +474,7 @@ export const TeacherAnalyticsDashboard: React.FC<TeacherAnalyticsDashboardProps>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-500/40 border border-emerald-500/60 inline-block" /> ≥80% High</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-teal-500/30 border border-teal-500/50 inline-block" /> 70-79%</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-500/30 border border-amber-500/50 inline-block" /> 55-69%</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-rose-500/35 border border-rose-500/60 inline-block" /> &lt;55% Weak</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-rose-500/35 border border-rose-500/60 inline-block" /> &lt;55% Requires Practice</span>
           </div>
         </div>
 
@@ -604,7 +604,7 @@ export const TeacherAnalyticsDashboard: React.FC<TeacherAnalyticsDashboardProps>
                     </span>
                   </div>
                   <p className="text-xs text-slate-400">
-                    Struggling area: <span className="text-cyan-300 font-semibold">{item.critical_concept}</span> • 
+                    Focus area (Requires practice): <span className="text-cyan-300 font-semibold">{item.critical_concept}</span> • 
                     Accuracy: <span className="text-slate-300 font-mono">{item.accuracy}%</span>
                   </p>
                   <p className="text-xs text-slate-300 italic bg-black/40 p-2 rounded-lg border border-slate-800 inline-block mt-1">

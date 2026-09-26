@@ -36,6 +36,24 @@ export interface ReactionDetail {
   };
   keyInsights: string[];
   uses: string[];
+  conditionsUsed?: {
+    temperature: string;
+    pressure: string;
+    solvent: string;
+    catalyst: string;
+    atmosphere: string;
+    isDefaultAssumption?: boolean;
+    defaultAssumptionsSummary?: string;
+  };
+  conditionDependent?: boolean;
+  alternativePathways?: Array<{
+    condition: string;
+    equation: string;
+    products: string;
+    note: string;
+  }>;
+  verificationStatus?: 'VERIFIED' | 'CALCULATED' | 'PREDICTED' | 'AI-GENERATED' | 'DEFAULT ASSUMPTION';
+  confidence?: number;
 }
 
 export interface ReactionMatrixResult {
@@ -256,12 +274,283 @@ Under standard thermodynamic ambient conditions (298.15 K, 1 atm), **${capName}*
 // 2. OFFLINE UNIVERSAL REACTION PREDICTION ENGINE
 // -----------------------------------------------------------------------------
 
-export function predictOfflineReaction(reactantsInput: string): ReactionDetail {
+export function predictOfflineReaction(reactantsInput: string, conditions?: any): ReactionDetail {
   const raw = reactantsInput.trim();
   const inputLower = raw.toLowerCase().replace(/\s+/g, ' ');
 
+  const defaultConditions = {
+    temperature: conditions?.temperature || "25 °C",
+    pressure: conditions?.pressure || "1 atm",
+    solvent: conditions?.solvent || "Water (Aqueous)",
+    catalyst: conditions?.catalyst || "None",
+    atmosphere: conditions?.atmosphere || "Ambient",
+    isDefaultAssumption: !conditions || !conditions.temperature,
+    defaultAssumptionsSummary: !conditions || !conditions.temperature 
+      ? "Conditions not provided. Using default assumptions: 25 °C, 1 atm, standard ambient aqueous medium."
+      : "User-specified custom reaction conditions."
+  };
+
   // 1. Specific Known Reactions Dictionary
-  // Acid-Base Neutralizations
+  // Alkali Metal + Water: Na + H2O
+  if ((inputLower.includes('na') && inputLower.includes('h2o')) || (inputLower.includes('sodium') && inputLower.includes('water'))) {
+    return {
+      reactantText: raw,
+      balancedEquation: "2Na(s) + 2H2O(l) ➔ 2NaOH(aq) + H2(g)↑",
+      reactionType: "Single Displacement / Exothermic Redox",
+      thermalType: "Exothermic",
+      energyChange: "-368.4 kJ/mol",
+      activationEnergy: "~0 kJ/mol (Spontaneous at Ambient)",
+      catalysts: ["None"],
+      equationBalanced: {
+        reactants: [
+          { formula: "Na", coefficient: 2, name: "Sodium Metal" },
+          { formula: "H2O", coefficient: 2, name: "Water" }
+        ],
+        products: [
+          { formula: "NaOH", coefficient: 2, name: "Sodium Hydroxide" },
+          { formula: "H2", coefficient: 1, name: "Hydrogen Gas" }
+        ]
+      },
+      conditionsUsed: defaultConditions,
+      keyInsights: [
+        "Metallic sodium vigorously displaces hydrogen from liquid water: 2Na + 2H2O ➔ 2NaOH + H2.",
+        "Exothermic release melts the sodium into a floating silvery sphere; hydrogen gas may ignite with yellow flame."
+      ],
+      uses: ["Industrial production of sodium hydroxide", "Chemical hydrogen generation demonstration"]
+    };
+  }
+
+  // Metal Oxidation: Mg + O2
+  if ((inputLower.includes('mg') && inputLower.includes('o2')) || (inputLower.includes('magnesium') && inputLower.includes('oxygen'))) {
+    return {
+      reactantText: raw,
+      balancedEquation: "2Mg(s) + O2(g) ➔ 2MgO(s)",
+      reactionType: "Redox Combustion / Combination",
+      thermalType: "Exothermic",
+      energyChange: "-1203.4 kJ/mol (for 2 moles MgO)",
+      activationEnergy: "140 kJ/mol (Thermal Ignition)",
+      catalysts: ["None (Requires Thermal Ignition)"],
+      equationBalanced: {
+        reactants: [
+          { formula: "Mg", coefficient: 2, name: "Magnesium Metal" },
+          { formula: "O2", coefficient: 1, name: "Oxygen Gas" }
+        ],
+        products: [
+          { formula: "MgO", coefficient: 2, name: "Magnesium Oxide" }
+        ]
+      },
+      conditionsUsed: {
+        ...defaultConditions,
+        solvent: "Neat / Gas phase",
+        defaultAssumptionsSummary: "Ignition temperature threshold applied under ambient 1 atm air atmosphere."
+      },
+      keyInsights: [
+        "Emits intense, blinding white luminescence due to blackbody radiation of incandescent MgO particles.",
+        "High lattice energy of solid magnesium oxide (U = -3791 kJ/mol) strongly drives the thermodynamic favorability."
+      ],
+      uses: ["Pyrotechnic flares and flash illumination", "High-temperature refractory furnace linings"]
+    };
+  }
+
+  // Weak Acid - Strong Base Neutralization: CH3COOH + NaOH
+  if ((inputLower.includes('ch3cooh') && inputLower.includes('naoh')) || (inputLower.includes('acetic') && inputLower.includes('sodium hydroxide'))) {
+    return {
+      reactantText: raw,
+      balancedEquation: "CH3COOH(aq) + NaOH(aq) ➔ CH3COONa(aq) + H2O(l)",
+      reactionType: "Weak Acid - Strong Base Neutralization",
+      thermalType: "Exothermic",
+      energyChange: "-55.2 kJ/mol",
+      activationEnergy: "~0 kJ/mol (Diffusion Controlled)",
+      catalysts: ["None"],
+      equationBalanced: {
+        reactants: [
+          { formula: "CH3COOH", coefficient: 1, name: "Acetic Acid" },
+          { formula: "NaOH", coefficient: 1, name: "Sodium Hydroxide" }
+        ],
+        products: [
+          { formula: "CH3COONa", coefficient: 1, name: "Sodium Acetate" },
+          { formula: "H2O", coefficient: 1, name: "Water" }
+        ]
+      },
+      conditionsUsed: defaultConditions,
+      keyInsights: [
+        "Equivalence point pH is basic (~8.7) due to conjugate base acetate ion hydrolysis: CH3COO⁻ + H2O ⇌ CH3COOH + OH⁻.",
+        "Forms a classic Henderson-Hasselbalch buffer solution when partially neutralized."
+      ],
+      uses: ["Buffer preparation in biochemical systems", "Food preservative sodium acetate synthesis"]
+    };
+  }
+
+  // SN2 Nucleophilic Substitution: CH3Br + OH- / CH3Br + NaOH
+  if (inputLower.includes('ch3br') && (inputLower.includes('oh') || inputLower.includes('naoh') || inputLower.includes('hydroxide'))) {
+    return {
+      reactantText: raw,
+      balancedEquation: "CH3Br + NaOH ➔ CH3OH + NaBr",
+      reactionType: "Bimolecular Nucleophilic Substitution (SN2)",
+      thermalType: "Exothermic",
+      energyChange: "-82.0 kJ/mol",
+      activationEnergy: "75 kJ/mol",
+      catalysts: ["Polar Aprotic Solvent (Acetone / DMSO)"],
+      equationBalanced: {
+        reactants: [
+          { formula: "CH3Br", coefficient: 1, name: "Bromomethane" },
+          { formula: "NaOH", coefficient: 1, name: "Sodium Hydroxide" }
+        ],
+        products: [
+          { formula: "CH3OH", coefficient: 1, name: "Methanol" },
+          { formula: "NaBr", coefficient: 1, name: "Sodium Bromide" }
+        ]
+      },
+      conditionsUsed: {
+        ...defaultConditions,
+        solvent: conditions?.solvent || "Polar Aprotic (Acetone / DMSO)"
+      },
+      keyInsights: [
+        "Concerted single-step mechanism with backside nucleophilic attack and 100% Walden inversion.",
+        "Rate law exhibits second-order kinetics: rate = k[CH3Br][OH⁻]."
+      ],
+      uses: ["Organic synthesis of primary alcohols", "Fundamental mechanism teaching benchmark"]
+    };
+  }
+
+  // Permanganate Redox Halogen Generation: KMnO4 + HCl
+  if (inputLower.includes('kmno4') && inputLower.includes('hcl')) {
+    return {
+      reactantText: raw,
+      balancedEquation: "2KMnO4(aq) + 16HCl(aq) ➔ 2KCl(aq) + 2MnCl2(aq) + 5Cl2(g)↑ + 8H2O(l)",
+      reactionType: "Redox Oxidation-Reduction / Halogen Generation",
+      thermalType: "Exothermic",
+      energyChange: "-324.5 kJ/mol",
+      activationEnergy: "35 kJ/mol",
+      catalysts: ["None (Autocatalytic by Mn2+)"],
+      equationBalanced: {
+        reactants: [
+          { formula: "KMnO4", coefficient: 2, name: "Potassium Permanganate" },
+          { formula: "HCl", coefficient: 16, name: "Hydrochloric Acid" }
+        ],
+        products: [
+          { formula: "KCl", coefficient: 2, name: "Potassium Chloride" },
+          { formula: "MnCl2", coefficient: 2, name: "Manganese(II) Chloride" },
+          { formula: "Cl2", coefficient: 5, name: "Chlorine Gas" },
+          { formula: "H2O", coefficient: 8, name: "Water" }
+        ]
+      },
+      conditionsUsed: {
+        ...defaultConditions,
+        atmosphere: "Fume Hood Mandatory"
+      },
+      keyInsights: [
+        "Permanganate Mn(VII) is reduced to Mn(II) while chloride (-1) is oxidized to green-yellow chlorine gas Cl2 (0).",
+        "Must be performed in a functional chemical fume hood due to toxic chlorine gas evolution."
+      ],
+      uses: ["Laboratory generation of chlorine gas", "Redox volumetric titration"]
+    };
+  }
+
+  // Condition-Dependent Reaction: Ethanol + H2SO4
+  if ((inputLower.includes('c2h5oh') || inputLower.includes('ethanol')) && inputLower.includes('h2so4')) {
+    const tempNum = conditions?.temperature ? parseInt(conditions.temperature) : null;
+    if (tempNum && tempNum >= 160) {
+      return {
+        reactantText: raw,
+        balancedEquation: "C2H5OH(l) ➔ C2H4(g)↑ + H2O(l) (170 °C, conc. H2SO4)",
+        reactionType: "Acid-Catalyzed Intramolecular Dehydration (E1 Elimination)",
+        thermalType: "Endothermic",
+        energyChange: "+45.3 kJ/mol",
+        activationEnergy: "105 kJ/mol",
+        catalysts: ["Concentrated H2SO4 at 170 °C"],
+        equationBalanced: {
+          reactants: [{ formula: "C2H5OH", coefficient: 1, name: "Ethanol" }],
+          products: [
+            { formula: "C2H4", coefficient: 1, name: "Ethene (Ethylene Gas)" },
+            { formula: "H2O", coefficient: 1, name: "Water" }
+          ]
+        },
+        conditionsUsed: {
+          ...defaultConditions,
+          temperature: `${tempNum} °C`,
+          catalyst: "Concentrated H2SO4",
+          isDefaultAssumption: false,
+          defaultAssumptionsSummary: `Elevated temperature (${tempNum} °C) drives intramolecular elimination yielding gaseous ethene.`
+        },
+        keyInsights: ["At 170°C, the high temperature overcomes the elimination activation barrier, forming alkene."],
+        uses: ["Polyethylene monomer feedstock synthesis"]
+      };
+    } else if (tempNum && tempNum <= 150 && tempNum >= 120) {
+      return {
+        reactantText: raw,
+        balancedEquation: "2C2H5OH(l) ➔ C2H5OC2H5(l) + H2O(l) (140 °C, conc. H2SO4)",
+        reactionType: "Acid-Catalyzed Intermolecular Etherification (SN2)",
+        thermalType: "Exothermic",
+        energyChange: "-24.2 kJ/mol",
+        activationEnergy: "80 kJ/mol",
+        catalysts: ["Concentrated H2SO4 at 140 °C"],
+        equationBalanced: {
+          reactants: [{ formula: "C2H5OH", coefficient: 2, name: "Ethanol" }],
+          products: [
+            { formula: "C2H5OC2H5", coefficient: 1, name: "Diethyl Ether" },
+            { formula: "H2O", coefficient: 1, name: "Water" }
+          ]
+        },
+        conditionsUsed: {
+          ...defaultConditions,
+          temperature: `${tempNum} °C`,
+          catalyst: "Concentrated H2SO4",
+          isDefaultAssumption: false,
+          defaultAssumptionsSummary: `Moderate temperature (${tempNum} °C) with excess ethanol favors bimolecular nucleophilic substitution.`
+        },
+        keyInsights: ["At 140°C with excess alcohol, intermolecular nucleophilic attack yields diethyl ether."],
+        uses: ["Solvent synthesis in chemical industry"]
+      };
+    } else {
+      return {
+        reactantText: raw,
+        balancedEquation: "Product depends on reaction conditions: 2C2H5OH ➔ C2H5OC2H5 + H2O (140 °C) OR C2H5OH ➔ C2H4 + H2O (170 °C)",
+        reactionType: "Condition-Dependent Dehydration (Etherification vs. Elimination)",
+        thermalType: "Neutral",
+        energyChange: "Variable with temperature (-24.2 kJ/mol at 140 °C vs +45.3 kJ/mol at 170 °C)",
+        activationEnergy: "80 - 105 kJ/mol",
+        catalysts: ["Concentrated H2SO4"],
+        equationBalanced: {
+          reactants: [{ formula: "C2H5OH", coefficient: 1, name: "Ethanol" }],
+          products: [
+            { formula: "C2H5OC2H5", coefficient: 1, name: "Diethyl Ether (at 140 °C)" },
+            { formula: "C2H4", coefficient: 1, name: "Ethene (at 170 °C)" }
+          ]
+        },
+        conditionsUsed: {
+          ...defaultConditions,
+          temperature: "Condition not provided (140 °C vs 170 °C)",
+          catalyst: "Concentrated H2SO4",
+          isDefaultAssumption: true,
+          defaultAssumptionsSummary: "Conditions not provided. Product prediction depends fundamentally on temperature: 140 °C yields diethyl ether; 170 °C yields ethene."
+        },
+        conditionDependent: true,
+        alternativePathways: [
+          {
+            condition: "Moderate Temperature (~140 °C) with excess ethanol",
+            equation: "2C2H5OH ➔ C2H5OC2H5 + H2O",
+            products: "Diethyl Ether + Water",
+            note: "Intermolecular bimolecular substitution (SN2) dominates."
+          },
+          {
+            condition: "Elevated Temperature (~170 °C) with excess H2SO4",
+            equation: "C2H5OH ➔ C2H4 + H2O",
+            products: "Ethene + Water",
+            note: "Intramolecular elimination (E1) dominates."
+          }
+        ],
+        keyInsights: [
+          "Product prediction depends on reaction conditions.",
+          "At 140 °C, substitution dominates to yield diethyl ether.",
+          "At 170 °C, elimination dominates to yield ethene gas."
+        ],
+        uses: ["Industrial demonstration of temperature selectivity in chemical synthesis"]
+      };
+    }
+  }
+
+  // Acid-Base Neutralizations: HCl + NaOH
   if ((inputLower.includes('hcl') && inputLower.includes('naoh')) || (inputLower.includes('hydrochloric') && inputLower.includes('sodium hydroxide'))) {
     return {
       reactantText: raw,
@@ -281,6 +570,7 @@ export function predictOfflineReaction(reactantsInput: string): ReactionDetail {
           { formula: "H2O", coefficient: 1, name: "Water" }
         ]
       },
+      conditionsUsed: defaultConditions,
       keyInsights: [
         "Proton transfer between hydronium (H3O+) and hydroxide (OH-) to form neutral liquid water.",
         "Spectator ions Na+ and Cl- remain hydrated in aqueous solution; enthalpy of neutralization is consistently -57.3 kJ/mol for strong acid-strong base."

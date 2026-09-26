@@ -11,7 +11,9 @@ import {
   FeatureActivityLog,
   DailyLoginRecord,
   Assignment,
-  UserRole
+  UserRole,
+  SpacedRepetitionItem,
+  DiagnosticQuizResult
 } from '../types';
 import { initialQuestions } from '../data/quizQuestions';
 import { 
@@ -24,8 +26,15 @@ import {
   calculateOverallMastery, 
   generateRecommendations, 
   createDefaultConceptMasteries, 
-  PRESET_CLASSROOM_STUDENTS 
+  PRESET_CLASSROOM_STUDENTS,
+  getStudentADemoProfile,
+  getStudentBDemoProfile
 } from '../services/adaptiveEngine';
+import { 
+  initializeSpacedRepetitionSchedule, 
+  updateConceptSpacedRepetition, 
+  getDueConcepts 
+} from '../services/spacedRepetition';
 import { INITIAL_DAILY_LOGINS, INITIAL_FEATURE_LOGS } from '../data/initialActivityData';
 
 interface AuthAndQuizContextType {
@@ -40,6 +49,11 @@ interface AuthAndQuizContextType {
   featureLogs: FeatureActivityLog[];
   dailyLogins: DailyLoginRecord[];
   assignments: Assignment[];
+  spacedRepetitionSchedule: Record<string, SpacedRepetitionItem>;
+  dueConcepts: SpacedRepetitionItem[];
+  recentQuestionIds: string[];
+  diagnosticResult: DiagnosticQuizResult | null;
+  recordDiagnosticResult: (result: DiagnosticQuizResult) => void;
   createAssignment: (assignment: Omit<Assignment, 'id' | 'created_at' | 'completed_by'>) => Promise<void>;
   completeAssignment: (assignmentId: string) => Promise<void>;
   recordFeatureUsage: (
@@ -75,6 +89,8 @@ interface AuthAndQuizContextType {
   ) => void;
   guestLogin: () => void;
   refreshRecommendations: () => void;
+  activePersona: 'student_a' | 'student_b' | 'custom';
+  switchStudentPersona: (persona: 'student_a' | 'student_b' | 'custom') => void;
 }
 
 const AuthAndQuizContext = createContext<AuthAndQuizContextType | undefined>(undefined);
@@ -187,6 +203,30 @@ export const AuthAndQuizProvider: React.FC<{ children: React.ReactNode }> = ({ c
     ];
   });
 
+  const [spacedRepetitionSchedule, setSpacedRepetitionSchedule] = useState<Record<string, SpacedRepetitionItem>>(() => {
+    const saved = localStorage.getItem('chemizic_spaced_repetition');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { /* ignore */ }
+    }
+    return initializeSpacedRepetitionSchedule();
+  });
+
+  const [recentQuestionIds, setRecentQuestionIds] = useState<string[]>(() => {
+    const saved = localStorage.getItem('chemizic_recent_questions');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { /* ignore */ }
+    }
+    return [];
+  });
+
+  const [diagnosticResult, setDiagnosticResult] = useState<DiagnosticQuizResult | null>(() => {
+    const saved = localStorage.getItem('chemizic_diagnostic_result');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { /* ignore */ }
+    }
+    return null;
+  });
+
   useEffect(() => {
     localStorage.setItem('chemizic_feature_logs', JSON.stringify(featureLogs));
   }, [featureLogs]);
@@ -198,6 +238,20 @@ export const AuthAndQuizProvider: React.FC<{ children: React.ReactNode }> = ({ c
   useEffect(() => {
     localStorage.setItem('chemizic_assignments', JSON.stringify(assignments));
   }, [assignments]);
+
+  useEffect(() => {
+    localStorage.setItem('chemizic_spaced_repetition', JSON.stringify(spacedRepetitionSchedule));
+  }, [spacedRepetitionSchedule]);
+
+  useEffect(() => {
+    localStorage.setItem('chemizic_recent_questions', JSON.stringify(recentQuestionIds));
+  }, [recentQuestionIds]);
+
+  useEffect(() => {
+    if (diagnosticResult) {
+      localStorage.setItem('chemizic_diagnostic_result', JSON.stringify(diagnosticResult));
+    }
+  }, [diagnosticResult]);
 
   // Fetch assignments from server on mount
   useEffect(() => {
@@ -211,27 +265,18 @@ export const AuthAndQuizProvider: React.FC<{ children: React.ReactNode }> = ({ c
       .catch(err => console.warn("Could not fetch remote assignments ledger:", err));
   }, []);
 
+  const [activePersona, setActivePersona] = useState<'student_a' | 'student_b' | 'custom'>(() => {
+    const saved = localStorage.getItem('chemizic_active_persona');
+    return (saved as any) || 'student_a';
+  });
+
   // Initialize or load current active studentProfile
   const [studentProfile, setStudentProfile] = useState<StudentProfile>(() => {
     const saved = localStorage.getItem('chemizic_student_profile');
     if (saved) {
       try { return JSON.parse(saved); } catch (e) { /* ignore */ }
     }
-    const defaultMasteries = createDefaultConceptMasteries('std_current', 'average');
-    const defaultRecs = generateRecommendations('std_current', defaultMasteries, []);
-    return {
-      student_id: 'std_current',
-      name: 'Scholar Student',
-      class: 'Class 12 - Section B',
-      overall_mastery: calculateOverallMastery(defaultMasteries),
-      streak: 5,
-      total_questions: 48,
-      total_correct: 36,
-      last_active: new Date().toISOString(),
-      masteries: defaultMasteries,
-      recommendations: defaultRecs,
-      attemptsHistory: []
-    };
+    return getStudentADemoProfile();
   });
 
   // When currentUser changes, sync student profile identity
@@ -795,6 +840,29 @@ export const AuthAndQuizProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const nextAttemptsHistory = [...prev.attemptsHistory, newAttempt];
       const nextRecs = generateRecommendations(prev.student_id, nextMasteries, nextAttemptsHistory);
 
+      // Track recent question IDs (anti-repetition pool, up to 30)
+      setRecentQuestionIds(r => [questionId, ...r.filter(id => id !== questionId)].slice(0, 30));
+
+      // Update Spaced Repetition Scheduling
+      setSpacedRepetitionSchedule(prevSchedule => {
+        const currentItem = prevSchedule[conceptId] || {
+          concept_id: conceptId,
+          concept_name: targetConcept?.name || conceptId,
+          repetition_number: 0,
+          interval_days: 1,
+          ease_factor: 2.5,
+          last_reviewed: new Date().toISOString(),
+          next_review_date: new Date().toISOString().split('T')[0],
+          is_due: false,
+          retention_score: 50
+        };
+        const updatedItem = updateConceptSpacedRepetition(currentItem, isCorrect, updatedConceptMastery.mastery_score);
+        return {
+          ...prevSchedule,
+          [conceptId]: updatedItem
+        };
+      });
+
       return {
         ...prev,
         overall_mastery: nextOverall,
@@ -806,6 +874,86 @@ export const AuthAndQuizProvider: React.FC<{ children: React.ReactNode }> = ({ c
         attemptsHistory: nextAttemptsHistory
       };
     });
+  }, []);
+
+  const recordDiagnosticResult = useCallback((result: DiagnosticQuizResult) => {
+    setDiagnosticResult(result);
+    setStudentProfile(prev => {
+      const updatedMasteries = { ...prev.masteries };
+      Object.entries(result.conceptScores).forEach(([cid, score]) => {
+        if (updatedMasteries[cid]) {
+          updatedMasteries[cid] = {
+            ...updatedMasteries[cid],
+            mastery_score: score,
+            attempts: updatedMasteries[cid].attempts + 1,
+            correct_attempts: updatedMasteries[cid].correct_attempts + (score >= 60 ? 1 : 0),
+            last_attempt: new Date().toISOString()
+          };
+        }
+      });
+      const newOverall = calculateOverallMastery(updatedMasteries);
+      const newRecs = generateRecommendations(prev.student_id, updatedMasteries, prev.attemptsHistory);
+      return {
+        ...prev,
+        overall_mastery: newOverall,
+        masteries: updatedMasteries,
+        recommendations: newRecs
+      };
+    });
+  }, []);
+
+  const switchStudentPersona = useCallback((persona: 'student_a' | 'student_b' | 'custom') => {
+    setActivePersona(persona);
+    localStorage.setItem('chemizic_active_persona', persona);
+
+    if (persona === 'student_a') {
+      const alex = getStudentADemoProfile();
+      setStudentProfile(alex);
+      setCurrentUser({
+        id: 'std_alex',
+        username: 'Alex Turner (Student A)',
+        email: 'alex@chemizzic.edu',
+        role: 'student',
+        level: 12,
+        xp: 1420
+      });
+    } else if (persona === 'student_b') {
+      const riya = getStudentBDemoProfile();
+      setStudentProfile(riya);
+      setCurrentUser({
+        id: 'std_riya',
+        username: 'Riya Sen (Student B)',
+        email: 'riya@chemizzic.edu',
+        role: 'student',
+        level: 12,
+        xp: 1890
+      });
+    } else {
+      const defaultMasteries = createDefaultConceptMasteries('std_current', 'average');
+      const defaultRecs = generateRecommendations('std_current', defaultMasteries, []);
+      const customProfile: StudentProfile = {
+        student_id: 'std_current',
+        name: 'Scholar Student',
+        class: 'Class 12 - Section B',
+        overall_mastery: calculateOverallMastery(defaultMasteries),
+        streak: 5,
+        total_questions: 48,
+        total_correct: 36,
+        last_active: new Date().toISOString(),
+        masteries: defaultMasteries,
+        recommendations: defaultRecs,
+        attemptsHistory: []
+      };
+      setStudentProfile(customProfile);
+      setCurrentUser({
+        id: 'std_current',
+        username: 'Scholar Student',
+        email: 'student@chemizzic.edu',
+        role: 'student',
+        level: 8,
+        xp: 950
+      });
+    }
   }, []);
 
   const refreshRecommendations = useCallback(() => {
@@ -958,6 +1106,11 @@ export const AuthAndQuizProvider: React.FC<{ children: React.ReactNode }> = ({ c
       featureLogs,
       dailyLogins,
       assignments,
+      spacedRepetitionSchedule,
+      dueConcepts: getDueConcepts(spacedRepetitionSchedule),
+      recentQuestionIds,
+      diagnosticResult,
+      recordDiagnosticResult,
       createAssignment,
       completeAssignment,
       switchRole,
@@ -970,7 +1123,9 @@ export const AuthAndQuizProvider: React.FC<{ children: React.ReactNode }> = ({ c
       recordQuizResult,
       recordAdaptiveAttempt,
       guestLogin,
-      refreshRecommendations
+      refreshRecommendations,
+      activePersona,
+      switchStudentPersona
     }}>
       {children}
     </AuthAndQuizContext.Provider>

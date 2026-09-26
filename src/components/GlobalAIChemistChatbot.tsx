@@ -87,12 +87,21 @@ export const GlobalAIChemistChatbot: React.FC<GlobalAIChemistChatbotProps> = ({
     setLoading(true);
 
     try {
+      // Prepare multi-turn conversation history for context continuity
+      const chatHistory = messages
+        .filter(m => m.id !== 'msg_welcome')
+        .map(m => ({
+          role: m.sender === 'user' ? 'user' : 'model',
+          parts: [{ text: m.text }]
+        }));
+
       const response = await fetch('/api/chemist/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: query,
-          context: `User is on tab: ${currentTabContext}`
+          context: `User is on tab: ${currentTabContext}`,
+          history: chatHistory
         })
       });
 
@@ -106,6 +115,7 @@ export const GlobalAIChemistChatbot: React.FC<GlobalAIChemistChatbotProps> = ({
         sender: 'assistant',
         text: data.reply || 'Here is the chemical explanation for your query.',
         timestamp: new Date().toISOString(),
+        source: data.source || 'ai',
         suggestions: data.suggestions || ['Ask another question', 'Explain further', 'Give a practice problem'],
         stepByStepSolution: data.stepByStepSolution
       };
@@ -125,12 +135,10 @@ export const GlobalAIChemistChatbot: React.FC<GlobalAIChemistChatbotProps> = ({
       const fallbackMsg: ChatMessage = {
         id: `bot_fb_${Date.now()}`,
         sender: 'assistant',
-        text: `Here is a breakdown for **"${query}"**:
-- Check that your chemical equation preserves atomic conservation.
-- Convert temperature to absolute Kelvin: $T(K) = \\theta(^\\circ C) + 273.15$.
-- In equilibrium expressions, pure solids ($s$) and liquids ($l$) have an activity of 1.
-Would you like a step-by-step derivation or a practice question?`,
+        text: `AI service unavailable right now. Using local chemistry reasoning for **"${query}"**:\n- Review stoichiometric atomic balances and oxidation states.\n- Convert temperature to absolute Kelvin: $T(K) = \\theta(^\\circ C) + 273.15$.\n- In equilibrium expressions, pure solids ($s$) and liquids ($l$) have an activity of 1.\nWould you like a step-by-step derivation or a practice question?`,
         timestamp: new Date().toISOString(),
+        source: 'local_fallback',
+        isError: true,
         suggestions: ['Explain Nernst Equation', 'How to balance Redox reactions?', 'Give a hint']
       };
       setMessages(prev => [...prev, fallbackMsg]);
@@ -252,6 +260,26 @@ Would you like a step-by-step derivation or a practice question?`,
                       key={msg.id}
                       className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
                     >
+                      {/* Scientific Status Badge */}
+                      {msg.sender === 'assistant' && msg.id !== 'msg_welcome' && (
+                        <div className="flex items-center gap-1.5 mb-1 ml-0.5">
+                          {msg.source === 'ai' ? (
+                            <span className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 font-mono font-bold flex items-center gap-1">
+                              <Sparkles size={9} /> AI RESPONSE
+                            </span>
+                          ) : (
+                            <span className="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-mono font-bold flex items-center gap-1">
+                              <BookOpen size={9} /> LOCAL CHEMISTRY FALLBACK
+                            </span>
+                          )}
+                          {msg.isError && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-400/30 font-mono">
+                              OFFLINE
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       <div 
                         className={`max-w-[88%] p-3.5 rounded-2xl leading-relaxed whitespace-pre-wrap ${
                           msg.sender === 'user'
@@ -276,6 +304,20 @@ Would you like a step-by-step derivation or a practice question?`,
                           </div>
                         )}
                       </div>
+
+                      {/* Retry Button if Fallback */}
+                      {msg.source === 'local_fallback' && msg.id !== 'msg_welcome' && (
+                        <button
+                          onClick={() => {
+                            const idx = messages.findIndex(m => m.id === msg.id);
+                            const prevUserMsg = idx > 0 ? messages[idx - 1] : null;
+                            if (prevUserMsg) handleSendMessage(prevUserMsg.text);
+                          }}
+                          className="mt-1.5 text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer font-mono ml-1 hover:underline"
+                        >
+                          <RefreshCw size={10} /> Retry with Gemini AI
+                        </button>
+                      )}
 
                       {/* Clickable prompt suggestions */}
                       {msg.suggestions && msg.suggestions.length > 0 && msg.sender === 'assistant' && (

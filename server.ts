@@ -16,8 +16,22 @@ import {
   simulateOfflineReactionMatrix,
   synthesizeOfflineCompounds
 } from './src/services/chemistryEngine';
+import { solveChemicalEquation } from './src/services/equationSolver';
+import { predictPeriodicReaction, COMMON_PERIODIC_REAGENTS } from './src/services/periodicReactionEngine';
+import { searchPHDatabase, calculateChemicalPH, PH_DATABASE } from './src/services/phEngine';
+import { solveChemistryNumerical } from './src/services/numericalEngine';
+import { findMechanism, searchMechanisms, getAllMechanismNames } from './src/services/mechanismEngine';
+import { findGiveReasonAnswer, searchGiveReasonBank } from './src/services/giveReasonEngine';
+import { findConversionRoute, searchConversionRoutes, getAllConversions } from './src/services/organicConversionEngine';
 
+// Load .env.local first if present, then fallback to .env
+const envLocalPath = path.join(process.cwd(), '.env.local');
+if (fs.existsSync(envLocalPath)) {
+  dotenv.config({ path: envLocalPath });
+}
 dotenv.config();
+
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 // -------------------------------------------------------------------
 // MULTI-USER DB PERSISTENCE (SERVER-SIDE LEDGER)
@@ -184,7 +198,301 @@ function getGeminiClient(): GoogleGenAI | null {
 }
 
 // -------------------------------------------------------------------
-// API ROUTE 1: Search Chemistry Database
+// BACKEND HEALTH ENDPOINT FOR AI SERVICES
+// -------------------------------------------------------------------
+app.get('/api/ai/health', (req, res) => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const isConfigured = Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY' && apiKey.trim().length > 10);
+  res.json({
+    configured: isConfigured,
+    provider: "Google Gemini",
+    model: GEMINI_MODEL,
+    status: isConfigured ? "ready" : "unconfigured"
+  });
+});
+
+// -------------------------------------------------------------------
+// PROGRAMMATIC DETERMINISTIC NUMERICAL SOLVER ENDPOINT
+// -------------------------------------------------------------------
+app.post('/api/numerical/solve', (req, res) => {
+  const { problem } = req.body;
+  if (!problem || typeof problem !== 'string' || !problem.trim()) {
+    res.status(400).json({ error: "Field 'problem' is required as a string." });
+    return;
+  }
+  try {
+    const solution = solveChemistryNumerical(problem.trim());
+    res.json(solution);
+  } catch (err: any) {
+    res.status(500).json({ error: "Unable to calculate with the supplied values." });
+  }
+});
+
+// -------------------------------------------------------------------
+// REACTION MECHANISM ENDPOINTS (Offline Deterministic)
+// -------------------------------------------------------------------
+app.get('/api/mechanism/search', (req, res) => {
+  const query = sanitizeString((req.query.q as string || '').trim(), 200);
+  if (!query) {
+    res.json({ mechanisms: getAllMechanismNames() });
+    return;
+  }
+  const results = searchMechanisms(query);
+  res.json({ query, count: results.length, mechanisms: results });
+});
+
+app.get('/api/mechanism/find', (req, res) => {
+  const query = sanitizeString((req.query.q as string || '').trim(), 200);
+  if (!query) {
+    res.status(400).json({ error: "Query parameter 'q' is required." });
+    return;
+  }
+  const mechanism = findMechanism(query);
+  if (!mechanism) {
+    res.status(404).json({ error: `No mechanism found for query: "${query}"` });
+    return;
+  }
+  res.json({ found: true, mechanism });
+});
+
+// -------------------------------------------------------------------
+// GIVE REASON ENDPOINTS (Offline Deterministic)
+// -------------------------------------------------------------------
+app.get('/api/give-reason/search', (req, res) => {
+  const query = sanitizeString((req.query.q as string || '').trim(), 250);
+  const level = req.query.level as string | undefined;
+  const results = searchGiveReasonBank(query, level as any);
+  res.json({ query, count: results.length, results });
+});
+
+app.get('/api/give-reason/find', (req, res) => {
+  const query = sanitizeString((req.query.q as string || '').trim(), 250);
+  if (!query) {
+    res.status(400).json({ error: "Query parameter 'q' is required." });
+    return;
+  }
+  const answer = findGiveReasonAnswer(query);
+  if (!answer) {
+    res.status(404).json({ error: `No offline answer found for: "${query}"` });
+    return;
+  }
+  res.json({ found: true, answer });
+});
+
+// AI Give Reason (Gemini-backed) - fallback for unanswered questions
+app.post('/api/ai/give-reason', rateLimiter(60000, 20, "Too many AI give-reason requests."), async (req, res) => {
+  const { question, context } = req.body;
+  if (!question || !question.trim()) {
+    res.status(400).json({ error: "Field 'question' is required." });
+    return;
+  }
+  const sanitizedQ = sanitizeString(question, 400);
+  
+  // Try offline first
+  const offline = findGiveReasonAnswer(sanitizedQ);
+  if (offline) {
+    res.json({
+      source: 'offline',
+      answer: offline,
+      response: `${offline.coreScientificPrinciple}\n\n${offline.detailedChemicalCause}\n\n**Exam Answer:** ${offline.oneLineExamAnswer}`,
+      examAnswer: offline.oneLineExamAnswer
+    });
+    return;
+  }
+  
+  const ai = getGeminiClient();
+  if (!ai) {
+    res.status(503).json({ error: "AI service not configured. Set GEMINI_API_KEY in .env.local", source: 'unavailable' });
+    return;
+  }
+  
+  try {
+    const prompt = `You are ChemiZIC's expert chemistry tutor. Answer the following chemistry "Give Reason" question with:
+1. CORE SCIENTIFIC PRINCIPLE (1-2 sentences)
+2. DETAILED CHEMICAL CAUSE (3-5 sentences with specific values, examples, and chemistry)
+3. ONE-LINE EXAM ANSWER (concise sentence suitable for board exams)
+
+Question: ${sanitizedQ}
+${context ? `Context: ${context}` : ''}
+
+Format your response exactly as:
+CORE PRINCIPLE: [text]
+DETAILED CAUSE: [text]
+EXAM ANSWER: [text]
+EXAM TIP: [text]`;
+
+    const response = await ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+      contents: prompt
+    });
+    const text = response.text || '';
+    res.json({ source: 'ai', response: text });
+  } catch (err: any) {
+    res.status(500).json({ error: `AI error: ${err.message}` });
+  }
+});
+
+// -------------------------------------------------------------------
+// ORGANIC CONVERSION ENDPOINTS (Offline + AI)
+// -------------------------------------------------------------------
+app.get('/api/organic/conversions', (req, res) => {
+  const query = sanitizeString((req.query.q as string || '').trim(), 200);
+  if (!query) {
+    res.json({ conversions: getAllConversions() });
+    return;
+  }
+  const results = searchConversionRoutes(query);
+  res.json({ query, count: results.length, results });
+});
+
+app.get('/api/organic/convert', (req, res) => {
+  const from = sanitizeString((req.query.from as string || '').trim(), 100);
+  const to = sanitizeString((req.query.to as string || '').trim(), 100);
+  if (!from || !to) {
+    res.status(400).json({ error: "Both 'from' and 'to' query parameters are required." });
+    return;
+  }
+  const route = findConversionRoute(from, to);
+  if (!route) {
+    res.status(404).json({ error: `No conversion route found from "${from}" to "${to}". Try AI generation.` });
+    return;
+  }
+  res.json({ found: true, route });
+});
+
+app.post('/api/ai/organic-conversion', rateLimiter(60000, 15, "Too many organic conversion requests."), async (req, res) => {
+  const { from, to, context } = req.body;
+  if (!from || !to) {
+    res.status(400).json({ error: "Fields 'from' and 'to' are required." });
+    return;
+  }
+  const sanitizedFrom = sanitizeString(from, 150);
+  const sanitizedTo = sanitizeString(to, 150);
+  
+  // Try offline first
+  const offline = findConversionRoute(sanitizedFrom, sanitizedTo);
+  if (offline) {
+    res.json({ source: 'offline', route: offline });
+    return;
+  }
+  
+  const ai = getGeminiClient();
+  if (!ai) {
+    res.status(503).json({ error: "AI service not configured. Set GEMINI_API_KEY in .env.local" });
+    return;
+  }
+  
+  try {
+    const prompt = `You are ChemiZIC's organic chemistry expert. Provide a step-by-step organic conversion route:
+
+FROM: ${sanitizedFrom}
+TO: ${sanitizedTo}
+${context ? `Context: ${context}` : ''}
+
+For each step provide:
+- Step number
+- Intermediate compound
+- Reagent(s) with quantity hint
+- Conditions (temperature, solvent, pressure)
+- Mechanism type (e.g. SN2, EAS, Oxidation)
+- Why this reagent (brief scientific reason)
+- Exam tips
+
+Be scientifically rigorous. Mention if a direct single-step route is possible or why multiple steps are needed.`;
+
+    const response = await ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+      contents: prompt
+    });
+    res.json({ source: 'ai', response: response.text || '' });
+  } catch (err: any) {
+    res.status(500).json({ error: `AI error: ${err.message}` });
+  }
+});
+
+// -------------------------------------------------------------------
+// AI FLASHCARD GENERATION ENDPOINT
+// -------------------------------------------------------------------
+app.post('/api/ai/flashcards', rateLimiter(60000, 10, "Too many flashcard generation requests."), async (req, res) => {
+  const { topic, educationLevel, count } = req.body;
+  if (!topic || !topic.trim()) {
+    res.status(400).json({ error: "Field 'topic' is required." });
+    return;
+  }
+  const sanitizedTopic = sanitizeString(topic, 200);
+  const cardCount = Math.min(parseInt(count) || 10, 20); // max 20 cards
+  const level = sanitizeString(educationLevel || 'CLASS_12', 50);
+  
+  const ai = getGeminiClient();
+  if (!ai) {
+    res.status(503).json({ error: "AI service not configured. Set GEMINI_API_KEY in .env.local. Use curated offline decks instead." });
+    return;
+  }
+  
+  try {
+    const prompt = `Generate ${cardCount} high-quality chemistry flashcards for the topic "${sanitizedTopic}" at ${level} level.
+Each card must be concise, scientifically accurate, and suitable for spaced repetition learning.
+
+Return ONLY a JSON array of flashcard objects, no markdown wrapping:
+[
+  {
+    "id": "unique_id",
+    "front": "The question or prompt (concise)",
+    "back": "The answer with key facts, formulas, or reasoning",
+    "type": "definition|formula|reaction|key_fact|exam_tip",
+    "topic": "${sanitizedTopic}",
+    "difficulty": 1-5,
+    "status": "unseen",
+    "correctCount": 0,
+    "incorrectCount": 0,
+    "educationLevel": ["${level}"],
+    "verificationStatus": "AI-GENERATED",
+    "tags": ["tag1", "tag2"]
+  }
+]
+
+Rules:
+- Front should be a clear question or prompt
+- Back should be a complete, learnable answer
+- Include key formulas, values, and reasoning
+- Mix types: definitions, formulas, reactions, and exam tips
+- Be scientifically accurate`;
+
+    const response = await ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+      contents: prompt,
+      config: { responseMimeType: 'application/json' }
+    });
+    
+    const text = response.text || '[]';
+    let cards;
+    try {
+      cards = JSON.parse(text);
+    } catch {
+      cards = [];
+    }
+    
+    if (!Array.isArray(cards) || cards.length === 0) {
+      res.status(500).json({ error: "AI generated invalid card format." });
+      return;
+    }
+    
+    // Add unique IDs if missing
+    cards = cards.map((c: any, i: number) => ({
+      ...c,
+      id: c.id || `ai_${Date.now()}_${i}`,
+      status: 'unseen',
+      correctCount: 0,
+      incorrectCount: 0
+    }));
+    
+    res.json({ topic: sanitizedTopic, count: cards.length, cards });
+  } catch (err: any) {
+    res.status(500).json({ error: `AI error: ${err.message}` });
+  }
+});
+
+
 // Matches local chemicals first, otherwise proxies PubChem PUG REST API
 // and enriches using server-side Gemini model
 // -------------------------------------------------------------------
@@ -209,8 +517,36 @@ app.get('/api/chemical/search', rateLimiter(60000, 40, "Too many search requests
 
   const query = sanitizeString(rawQuery, 250);
 
-  // 1. Check in popular chemicals database
   const queryLower = query.toLowerCase();
+
+  // 1. Universal Reaction Query Detection (e.g. "HCl + NaOH" or "Fe + O2")
+  if (query.includes('+') || query.includes('->') || query.includes('➔')) {
+    const reactionResult = solveChemicalEquation(query);
+    res.json({
+      source: 'reaction',
+      query,
+      reaction: reactionResult
+    });
+    return;
+  }
+
+  // 2. Universal Chemistry Concept / Question Query Detection (e.g. "why is benzene aromatic?")
+  if (/^(why|how|what|explain|is|can|does|define)\b/i.test(queryLower) || queryLower.includes('aromatic') || queryLower.includes('entropy') || queryLower.includes('hybridization')) {
+    const relatedChem = popularChemicals.find(c => queryLower.includes(c.name.toLowerCase()) || queryLower.includes(c.formula.toLowerCase())) || popularChemicals[1]; // default benzene if relevant
+    const offlineExp = generateOfflineExplanation(relatedChem.name, query);
+    res.json({
+      source: 'concept',
+      query,
+      conceptTitle: query,
+      explanation: offlineExp.studentExplanation,
+      scientistExplanation: offlineExp.scientistExplanation,
+      funFact: offlineExp.funFact,
+      relatedChemical: relatedChem
+    });
+    return;
+  }
+
+  // 3. Check in popular chemicals database
   const matchedLocal = popularChemicals.find(chem => 
     chem.name.toLowerCase() === queryLower ||
     chem.formula.toLowerCase() === queryLower ||
@@ -321,7 +657,7 @@ JSON Fields expected:
 - nfpaSpecial (string, optional like "W" or "OX")`;
 
         const response = await ai.models.generateContent({
-          model: 'gemini-3.5-flash',
+          model: GEMINI_MODEL,
           contents: prompt,
           config: {
             responseMimeType: 'application/json',
@@ -473,7 +809,7 @@ JSON Fields expected:
 - funFact (string, short punchy fact)`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -510,7 +846,7 @@ JSON Fields expected:
 // Predicts, balances, and classifies reactions for ANY compound in the world
 // -------------------------------------------------------------------
 app.post('/api/reaction/predict', rateLimiter(60000, 30, "Too many reaction predictions requested. Please pace your molecular simulations!"), async (req, res) => {
-  const { reactants } = req.body;
+  const { reactants, conditions } = req.body;
   if (!reactants || reactants.trim().length === 0) {
     res.status(400).json({ error: "Reactants are required. e.g. 'HCl + NaOH' or 'Caffeine'" });
     return;
@@ -528,11 +864,30 @@ app.post('/api/reaction/predict', rateLimiter(60000, 30, "Too many reaction pred
   }
 
   const sanitizedReactants = sanitizeString(trimmedReactants, 300);
+  const cond = conditions || {};
+  const temp = sanitizeString(cond.temperature || '25 °C', 40);
+  const pressure = sanitizeString(cond.pressure || '1 atm', 40);
+  const solvent = sanitizeString(cond.solvent || 'Water (Aqueous)', 50);
+  const catalyst = sanitizeString(cond.catalyst || 'None', 50);
+  const atmosphere = sanitizeString(cond.atmosphere || 'Ambient', 40);
+  const isDefaultAssumption = !cond.temperature && !cond.pressure && !cond.solvent && !cond.catalyst;
+  const defaultAssumptionsSummary = isDefaultAssumption
+    ? "Conditions not provided. Automatically using standard assumptions: 25 °C, 1 atm, standard ambient aqueous medium."
+    : "User-specified custom reaction conditions.";
+  const conditionsUsed = {
+    temperature: temp,
+    pressure,
+    solvent,
+    catalyst,
+    atmosphere,
+    isDefaultAssumption,
+    defaultAssumptionsSummary
+  };
 
   const ai = getGeminiClient();
   if (!ai) {
-    const offlineReaction = predictOfflineReaction(sanitizedReactants);
-    res.json(offlineReaction);
+    const offlineReaction = predictOfflineReaction(sanitizedReactants, cond);
+    res.json({ ...offlineReaction, conditionsUsed: offlineReaction.conditionsUsed || conditionsUsed });
     return;
   }
 
@@ -558,7 +913,7 @@ Respond ONLY in structured JSON matching this schema exactly:
 }`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -614,12 +969,12 @@ Respond ONLY in structured JSON matching this schema exactly:
     if (!parsed.balancedEquation || !parsed.reactionType) {
       throw new Error("Incomplete schema from reaction AI");
     }
-    res.json({ reactantText: sanitizedReactants, ...parsed });
+    res.json({ reactantText: sanitizedReactants, conditionsUsed, ...parsed });
 
   } catch (err: any) {
     console.warn("AI Reaction prediction fallback triggered:", err?.status || err?.message);
-    const offlineReaction = predictOfflineReaction(sanitizedReactants);
-    res.json(offlineReaction);
+    const offlineReaction = predictOfflineReaction(sanitizedReactants, cond);
+    res.json({ ...offlineReaction, conditionsUsed: offlineReaction.conditionsUsed || conditionsUsed });
   }
 });
 
@@ -779,7 +1134,7 @@ Respond in JSON matching the schema strictly:
 }`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         responseMimeType: 'application/json'
@@ -911,7 +1266,7 @@ Respond strictly in valid JSON:
 }`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         responseMimeType: 'application/json'
@@ -1204,7 +1559,7 @@ Respond with JSON matching this structure:
 }`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -1353,82 +1708,161 @@ app.post('/api/assignments/complete', (req, res) => {
 });
 
 // -------------------------------------------------------------------
+// -------------------------------------------------------------------
 // API ROUTE 10: AI Chemist Global Tutor Chatbot (Full-Page Assistant)
 // -------------------------------------------------------------------
+function normalizeChatHistory(rawHistory: any[]): Array<{ role: 'user' | 'model'; text: string }> {
+  if (!Array.isArray(rawHistory)) return [];
+  return rawHistory.map(h => {
+    const role: 'user' | 'model' = (h.role === 'user' || h.sender === 'user') ? 'user' : 'model';
+    let text = '';
+    if (typeof h.text === 'string') text = h.text;
+    else if (typeof h.content === 'string') text = h.content;
+    else if (Array.isArray(h.parts) && h.parts.length > 0 && typeof h.parts[0]?.text === 'string') {
+      text = h.parts.map((p: any) => p.text || '').join(' ');
+    }
+    return { role, text: text.trim() };
+  }).filter(h => h.text.length > 0);
+}
+
+function generateLocalChatFallback(userQuery: string, lastTopic: string, previousUserQueries: string[]) {
+  const qLower = userQuery.toLowerCase();
+  const isFollowUpElectrons = qLower.includes('electron') && (lastTopic.includes('oxidation') || qLower.includes('that example') || qLower.includes('in that') || previousUserQueries.some(q => q.includes('oxidation')));
+  const isFollowUpExample = qLower.includes('example') || qLower.includes('give me an example') || qLower.includes('show me an example');
+
+  if (isFollowUpElectrons) {
+    return {
+      reply: `In that oxidation example ($2\\text{Mg} + \\text{O}_2 \\rightarrow 2\\text{MgO}$), let's track the electrons step-by-step:\n- **Magnesium (Mg)**: Starts in ground state $[\\text{Ne}]3s^2$. During oxidation, each Mg atom surrenders its **2 valence electrons**:\n  $$\\text{Mg} \\rightarrow \\text{Mg}^{2+} + 2e^-$$\n- **Oxygen (O)**: Starts as molecular $\\text{O}_2$ with configuration $[\\text{He}]2s^2 2p^4$. Each oxygen atom accepts **2 electrons**:\n  $$\\text{O} + 2e^- \\rightarrow \\text{O}^{2-}$$\n- The transfer forms an ionic bond driven by high lattice energy ($-3791\\text{ kJ/mol}$).`,
+      stepByStepSolution: [
+        "1. Identify reducing agent (Mg) which loses electrons.",
+        "2. Identify oxidizing agent (O2) which accepts electrons.",
+        "3. Confirm conservation of charge: 2 Mg atoms lose 4 e⁻ total; 1 O2 molecule gains 4 e⁻ total."
+      ],
+      suggestions: ["Why does MgO have a high melting point?", "Explain reduction potentials", "Give me a redox practice question"]
+    };
+  }
+
+  if (isFollowUpExample && (lastTopic.includes('oxidation') || previousUserQueries.some(q => q.includes('oxidation')))) {
+    return {
+      reply: `Here is a classic, visible example of **oxidation**: The burning of magnesium metal in air!\n$$2\\text{Mg}(s) + \\text{O}_2(g) \\rightarrow 2\\text{MgO}(s)$$\nIn this reaction:\n- Metallic Magnesium (oxidation state 0) loses electrons to become $\\text{Mg}^{2+}$ (oxidation state +2).\n- Oxygen gas (oxidation state 0) gains electrons to become $\\text{O}^{2-}$ (oxidation state -2).\n- It releases an intense, blinding white flame with $\\Delta H^\\circ = -601.7\\text{ kJ/mol}$.`,
+      stepByStepSolution: [
+        "Oxidation half-reaction: Mg ➔ Mg²⁺ + 2e⁻ (Loss of Electrons is Oxidation - LEO)",
+        "Reduction half-reaction: O2 + 4e⁻ ➔ 2O²⁻ (Gain of Electrons is Reduction - GER)",
+        "Overall redox combination releases high exotherm."
+      ],
+      suggestions: ["What happens to electrons there?", "What is an oxidizing agent?", "Can oxidation happen without oxygen?"]
+    };
+  }
+
+  if (isFollowUpExample && (lastTopic.includes('entropy') || previousUserQueries.some(q => q.includes('entropy')))) {
+    return {
+      reply: `Here is a clear, intuitive example of **entropy increase ($\Delta S > 0$)**: The melting of ice into liquid water and boiling into steam!\n$$\\text{H}_2\\text{O}(s) \\rightarrow \\text{H}_2\\text{O}(l) \\rightarrow \\text{H}_2\\text{O}(g)$$\n- In solid ice, water molecules are locked in a rigid hexagonal crystal lattice with few accessible microstates ($\Omega$ is low, $S$ is small).\n- In liquid water, hydrogen bonds continuously break and re-form, allowing molecules to slip and tumble ($\Omega$ increases).\n- In water vapor, molecules zoom freely throughout the entire room with enormous volume dispersion ($\Delta S_{vap} = +109\\text{ J/(mol}\\cdot\\text{K)}$).`,
+      stepByStepSolution: [
+        "1. Solid ice has lowest entropy (S° = 47.9 J/mol·K).",
+        "2. Liquid water has intermediate entropy (S° = 69.9 J/mol·K).",
+        "3. Water vapor has highest entropy (S° = 188.8 J/mol·K)."
+      ],
+      suggestions: ["What happens to energy in that example?", "Why is boiling endothermic?", "Explain Boltzmann's entropy formula"]
+    };
+  }
+
+  if ((qLower.includes('energy') || qLower.includes('heat')) && (lastTopic.includes('entropy') || previousUserQueries.some(q => q.includes('entropy')))) {
+    return {
+      reply: `In the melting and boiling of water, let's track the **energy dispersal**:\n- **Energy Input**: Thermal energy (heat $q$) must be absorbed from the surroundings to break rigid hydrogen bonds ($\\Delta H_{fus} = +6.01\\text{ kJ/mol}$, $\\Delta H_{vap} = +40.7\\text{ kJ/mol}$).\n- **Energy Dispersion**: In the gas phase, that absorbed energy is partitioned into millions of translational, rotational, and vibrational quantum states.\n- **Thermodynamic Relation**: The entropy change is directly tied to heat absorbed at absolute temperature: $$\\Delta S = \\frac{q_{rev}}{T}$$\nBecause energy becomes dispersed over a vastly greater number of microscopic states, the universe's total entropy increases.`,
+      stepByStepSolution: [
+        "1. Heat absorption increases molecular kinetic energy and speeds.",
+        "2. Intermolecular bonds break, increasing positional disorder.",
+        "3. Energy is dispersed across more microstates: ΔS = q_rev / T."
+      ],
+      suggestions: ["What is Gibbs Free Energy?", "Explain the Second Law of Thermodynamics", "Can entropy decrease in a closed system?"]
+    };
+  }
+
+  if (qLower.includes('oxidation')) {
+    return {
+      reply: `**Oxidation** is defined in chemistry as the **loss of electrons** by a chemical species, which results in an **increase in its oxidation state**.\n\nRemember the mnemonic:\n> **OIL RIG**: **O**xidation **I**s **L**oss, **R**eduction **I**s **G**ain of electrons!\n\nIn classical terms, oxidation also refers to the addition of oxygen or removal of hydrogen from a molecule.`,
+      stepByStepSolution: [
+        "1. Write out the chemical equation.",
+        "2. Assign oxidation numbers to each atom using standard oxidation rules.",
+        "3. Identify which species lost electrons (increased oxidation number)."
+      ],
+      suggestions: ["Give me an example", "What is reduction?", "How to balance Redox reactions?"]
+    };
+  }
+
+  if (qLower.includes('entropy')) {
+    return {
+      reply: `**Entropy ($S$)** is a fundamental thermodynamic property that measures the **dispersion of energy and matter** in a chemical system at a specific temperature.\nAccording to the **Second Law of Thermodynamics**, the total entropy of an isolated system always increases in spontaneous processes:\n$$\\Delta S_{univ} = \\Delta S_{sys} + \\Delta S_{surr} > 0$$\nAt the microstate level, Ludwig Boltzmann quantified entropy as: $$S = k_B \\ln \\Omega$$`,
+      stepByStepSolution: [
+        "• Gas phase has vastly higher entropy than liquid, which has higher entropy than solid (S_gas >> S_liq > S_solid).",
+        "• Reactions producing more moles of gas (Δng > 0) have positive entropy changes (ΔS > 0).",
+        "• Increasing temperature increases entropy."
+      ],
+      suggestions: ["Explain it simply", "Give an example", "What is Gibbs Free Energy?"]
+    };
+  }
+
+  if (qLower.includes('nernst') || qLower.includes('emf') || qLower.includes('daniell')) {
+    return {
+      reply: `The **Nernst Equation** relates galvanic cell potential ($E_{cell}$) to standard potential ($E^\\circ_{cell}$) and reaction quotient ($Q$):\n$$E_{cell} = E^\\circ_{cell} - \\frac{0.0591}{n} \\log_{10}(Q)$$\nFor the Daniell cell (Zn-Cu couple) at $298\\text{ K}$:\n$$E_{cell} = 1.10\\text{ V} - \\frac{0.0591}{2} \\log_{10}\\left(\\frac{[\\text{Zn}^{2+}]}{[\\text{Cu}^{2+}]}\\right)$$`,
+      stepByStepSolution: [
+        "1. Identify number of transferred electrons (n = 2 for Zn + Cu²⁺ ➔ Zn²⁺ + Cu).",
+        "2. Compute reaction quotient Q = [Zn²⁺] / [Cu²⁺].",
+        "3. Evaluate log10(Q) and multiply by 0.0591/2.",
+        "4. Subtract the correction term from 1.10 V."
+      ],
+      suggestions: ["Calculate Daniell cell EMF at [Zn2+]=0.05M, [Cu2+]=1.2M", "What happens when Q = K?", "Why does concentration affect voltage?"]
+    };
+  }
+
+  return {
+    reply: `Here is a systematic chemistry explanation for **"${userQuery}"**:\n1. Identify the chemical species involved and their physical states.\n2. Determine whether this involves thermodynamics (energy), kinetics (rate), stoichiometry (mass/moles), or molecular structure.\n3. Verify units (convert Celsius to Kelvin: $T(K) = ^\\circ C + 273.15$, grams to moles: $n = m / M$).\n4. Would you like a step-by-step mathematical calculation or a conceptual explanation?`,
+    stepByStepSolution: [
+      "State given values and units clearly.",
+      "Identify the target variable you need to calculate.",
+      "Select the governing formula.",
+      "Verify dimensions and sign conventions."
+    ],
+    suggestions: ["Explain Nernst Equation", "How to balance Redox reactions?", "Give me a practice problem"]
+  };
+}
+
 app.post('/api/chemist/chat', async (req, res) => {
-  const { message, context } = req.body;
+  const { message, context, history } = req.body;
   if (!message || message.trim().length === 0) {
     res.status(400).json({ error: "Message is required." });
     return;
   }
 
   const userQuery = message.trim();
+  const normalizedHistory = normalizeChatHistory(history);
+  const previousUserQueries = normalizedHistory
+    .filter(h => h.role === 'user')
+    .map(h => h.text.toLowerCase());
+  const lastTopic = previousUserQueries.slice(-1)[0] || '';
   const ai = getGeminiClient();
 
   if (!ai) {
-    // Intelligent chemistry pedagogical heuristic replies
-    const qLower = userQuery.toLowerCase();
-    let reply = `Here is a helpful explanation from your AI Chemist Tutor:`;
-    let steps: string[] = [];
-    let suggestions = ["Explain Nernst Equation", "How to balance Redox reactions?", "VSEPR shapes summary", "What is Le Chatelier's Principle?"];
-
-    if (qLower.includes('nernst') || qLower.includes('emf') || qLower.includes('cell potential')) {
-      reply = `The **Nernst Equation** relates standard reduction potential to non-standard concentrations:
-$$E_{cell} = E^\\circ_{cell} - \\frac{0.0591}{n} \\log Q$$
-Where:
-- $E^\\circ_{cell}$ is standard cell EMF (at 298 K, 1 M)
-- $n$ is moles of electrons transferred in balanced redox
-- $Q$ is the reaction quotient: $[\\text{Products}]^p / [\\text{Reactants}]^r$`;
-      steps = [
-        "1. Write out the balanced half-reactions and determine n (e.g., n = 2 for Zn-Cu Daniell cell).",
-        "2. Calculate E°cell = E°(cathode) - E°(anode).",
-        "3. Write expression for Q using aqueous ion molarities (pure solids have activity = 1).",
-        "4. Substitute into Ecell = E°cell - (0.0591 / n) * log(Q)."
-      ];
-    } else if (qLower.includes('le chatelier') || qLower.includes('equilibrium')) {
-      reply = `**Le Chatelier's Principle** states that if a dynamic equilibrium system is disturbed by a change in temperature, pressure, or concentration, the system shifts in the direction that counteracts the disturbance.`;
-      steps = [
-        "• Increasing reactant concentration shifts equilibrium to the RIGHT (products).",
-        "• Increasing pressure shifts toward fewer moles of gas (Δng).",
-        "• For exothermic reactions (ΔH < 0), heating shifts equilibrium to the LEFT (reactants)."
-      ];
-    } else if (qLower.includes('vsepr') || qLower.includes('geometry') || qLower.includes('hybrid')) {
-      reply = `**VSEPR Theory** (Valence Shell Electron Pair Repulsion) predicts 3D geometries by minimizing electron pair repulsions. Steric Number (SN) = (Bond pairs) + (Lone pairs).`;
-      steps = [
-        "• SN = 2: Linear (180°, sp)",
-        "• SN = 3: Trigonal Planar (120°, sp2) or Bent (1 lone pair, ~117°)",
-        "• SN = 4: Tetrahedral (109.5°, sp3), Trigonal Pyramidal (1 lone pair, 107° e.g. NH3), or Bent (2 lone pairs, 104.5° e.g. H2O)",
-        "• SN = 5: Trigonal Bipyramidal (sp3d)",
-        "• SN = 6: Octahedral (sp3d2) or Square Planar (2 lone pairs e.g. XeF4)"
-      ];
-    } else {
-      reply = `Great chemistry question! To solve this problem systematically:
-1. Identify the chemical species involved and their physical states.
-2. Determine whether this involves thermodynamics (energy), kinetics (rate), stoichiometry (mass/moles), or orbital structure.
-3. Check units (convert grams to moles using Molar Mass, Celsius to Kelvin: K = °C + 273.15).
-4. Would you like a step-by-step calculation or a conceptual analogy?`;
-      steps = [
-        "State your given values (mass, pressure, volume, temperature).",
-        "Identify the target variable you need to calculate.",
-        "Select the governing formula.",
-        "Check sign conventions (exothermic ΔH < 0, endothermic ΔH > 0)."
-      ];
-    }
-
+    const local = generateLocalChatFallback(userQuery, lastTopic, previousUserQueries);
     res.json({
-      reply,
-      stepByStepSolution: steps.length > 0 ? steps : undefined,
-      suggestions
+      source: 'local_fallback',
+      reply: local.reply,
+      stepByStepSolution: local.stepByStepSolution,
+      suggestions: local.suggestions
     });
     return;
   }
 
   try {
-    const prompt = `You are ChemiZIC AI Chemist Tutor, an intelligent, encouraging, expert chemistry chatbot for students.
-Student asks: "${userQuery}"
+    const historyText = normalizedHistory.length > 0
+      ? `Previous conversation history:\n` + normalizedHistory.map(h => `${h.role === 'user' ? 'Student' : 'Tutor'}: ${h.text}`).join('\n') + '\n\n'
+      : '';
+
+    const prompt = `You are ChemiZIC AI Chemist Tutor, an intelligent, encouraging, expert chemistry chatbot for students across all academic levels (Class 11/12, BSc, MSc, BTech, MTech).
+${historyText}Student asks: "${userQuery}"
 Context: ${context || 'General chemistry inquiry in ChemiZIC laboratory app'}
 
-Provide a crystal-clear, accurate, pedagogical response. If the student has a problem, provide step-by-step reasoning or hints so they learn rather than just copying.
+Provide a crystal-clear, accurate, pedagogical response. Understand conversational follow-ups (e.g. if student asks "Give me an example" or "What happens to electrons there", refer back to previous conversation context).
 Include:
 - Clear explanation with formulas if relevant
 - 2 to 4 bulleted step-by-step guidance points
@@ -1442,7 +1876,7 @@ Respond in JSON matching:
 }`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -1459,15 +1893,226 @@ Respond in JSON matching:
     });
 
     const parsed = JSON.parse(response.text?.trim() || "{}");
-    res.json(parsed);
-  } catch (err) {
-    console.error("AI Chemist Chatbot error:", err);
+    res.json({ source: 'ai', ...parsed });
+  } catch (err: any) {
+    console.warn("AI Chemist Chatbot API call error, falling back to local chemistry reasoning:", err?.message || err);
+    const local = generateLocalChatFallback(userQuery, lastTopic, previousUserQueries);
     res.json({
-      reply: `I encountered an issue connecting to the AI neural core, but here is the key principle for your inquiry: Ensure your chemical equation is balanced and check all units (Kelvin for temperature, Joules for thermodynamics).`,
-      suggestions: ["Explain Nernst Equation", "How to balance Redox reactions?", "Give me a hint"]
+      source: 'local_fallback',
+      reply: local.reply,
+      stepByStepSolution: local.stepByStepSolution,
+      suggestions: local.suggestions
     });
   }
 });
+
+// -------------------------------------------------------------------
+// API ROUTE 11: Difficult Equation Solver Endpoint
+// -------------------------------------------------------------------
+app.post('/api/reaction/solve-equation', (req, res) => {
+  const reactants = (req.body.reactants || req.body.equation || '').trim();
+  if (!reactants) {
+    res.status(400).json({ error: "Reactants or equation are required." });
+    return;
+  }
+  const result = solveChemicalEquation(reactants);
+  res.json({ result, ...result });
+});
+
+// -------------------------------------------------------------------
+// API ROUTE 12: Periodic Table Reaction Predictor
+// -------------------------------------------------------------------
+app.get('/api/periodic/reaction', (req, res) => {
+  const elementA = (req.query.elementA as string || req.query.element as string || 'Na').trim();
+  const elementB = (req.query.elementB as string || req.query.reagent as string || 'H₂O').trim();
+  const result = predictPeriodicReaction(elementA, elementB);
+  res.json({ result, ...result });
+});
+
+// -------------------------------------------------------------------
+// API ROUTE 13: pH Meter Compounds Search & Calculation
+// -------------------------------------------------------------------
+app.get('/api/ph/compounds', (req, res) => {
+  const q = (req.query.q as string || '').trim();
+  const results = searchPHDatabase(q);
+  res.json({ compounds: results });
+});
+
+app.post('/api/ph/calculate', (req, res) => {
+  const { compoundId, concentration, volumeMl, temperatureC, dilutionWaterMl } = req.body;
+  const targetId = (compoundId || '').toLowerCase();
+  const compound = PH_DATABASE.find(c => c.id === targetId || c.formula.toLowerCase() === targetId) || PH_DATABASE[0];
+  const c = typeof concentration === 'number' ? concentration : 0.1;
+  const v = typeof volumeMl === 'number' ? volumeMl : 100;
+  const t = typeof temperatureC === 'number' ? temperatureC : 25;
+  const d = typeof dilutionWaterMl === 'number' ? dilutionWaterMl : 0;
+
+  const result = calculateChemicalPH(compound, c, v, t, d);
+  res.json({ result, ...result });
+});
+
+// -------------------------------------------------------------------
+// API ROUTE 14: Progressive AI Hint Generator
+// -------------------------------------------------------------------
+app.post('/api/ai/hint', async (req, res) => {
+  const { question, options, correctAnswer, conceptId, concept, level } = req.body;
+  const targetLevel = Number(level) || 1;
+  const targetConcept = conceptId || concept || 'General Chemistry';
+  const targetAnswer = (correctAnswer || '').toString();
+
+  const ai = getGeminiClient();
+  if (ai) {
+    try {
+      const prompt = `You are a chemistry tutor giving a hint for this question:
+Question: "${question}"
+Options: ${JSON.stringify(options || [])}
+Correct Answer: "${targetAnswer}"
+Concept: "${targetConcept}"
+Requested Hint Level: ${targetLevel} (1: Conceptual clue without revealing answer, 2: Governing formula/law, 3: Partial step-by-step reasoning, 4: Full solution)
+
+Respond in JSON matching:
+{
+  "level": ${targetLevel},
+  "title": "Short title e.g. Level 1: Conceptual Clue",
+  "content": "concise, helpful pedagogical hint text"
+}`;
+      const response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              level: { type: Type.INTEGER },
+              title: { type: Type.STRING },
+              content: { type: Type.STRING }
+            },
+            required: ["level", "title", "content"]
+          }
+        }
+      });
+      const parsed = JSON.parse(response.text?.trim() || "{}");
+      res.json({ hint: parsed.content || parsed.title, ...parsed });
+      return;
+    } catch (_) {
+      // Fallback
+    }
+  }
+
+  // Resilient Offline Progressive Hint Rules
+  let title = `Level ${targetLevel} Hint`;
+  let content = '';
+  if (targetLevel === 1) {
+    title = 'Level 1: Conceptual Clue';
+    content = `Identify the core chemistry principle at play here (${targetConcept}). Check whether mass, charge, or valence electrons are being conserved.`;
+  } else if (targetLevel === 2) {
+    title = 'Level 2: Governing Formula / Law';
+    content = `Recall the governing equation or definition for ${targetConcept}. Eliminate options that violate periodic trends or sign conventions.`;
+  } else if (targetLevel === 3) {
+    title = 'Level 3: Partial Reasoning';
+    content = `Consider the extreme cases: if reactant concentration is doubled or oxidation state changes, which option behaves logically?`;
+  } else {
+    title = 'Level 4: Full Scientific Solution';
+    content = targetAnswer 
+      ? `The verified correct answer is "${targetAnswer}". This follows from systematic evaluation of stoichiometric principles.`
+      : `Systematic evaluation indicates adherence to standard equilibrium and orbital conservation principles.`;
+  }
+
+  res.json({ hint: content, level: targetLevel, title, content });
+});
+
+// -------------------------------------------------------------------
+// API ROUTE 15: AI Dynamic Question Generator
+// -------------------------------------------------------------------
+app.post('/api/ai/generate-question', async (req, res) => {
+  const { conceptId, difficulty, questionType } = req.body;
+  const targetConcept = conceptId || 'atomic_structure';
+  const targetDifficulty = difficulty || 'medium';
+
+  const ai = getGeminiClient();
+  if (ai) {
+    try {
+      const prompt = `Generate a high-quality, scientifically accurate multiple-choice chemistry question for:
+Concept: ${targetConcept}
+Difficulty: ${targetDifficulty}
+Type: ${questionType || 'Conceptual MCQ'}
+
+Include:
+- question (clear statement)
+- options (array of 4 unique options)
+- correctAnswer (exact match of one option)
+- explanation (educational breakdown)
+- whyIncorrect (object mapping the 3 wrong choices to concise explanation of their misconception)
+
+Respond in JSON matching:
+{
+  "question": "string",
+  "options": ["string", "string", "string", "string"],
+  "correctAnswer": "string",
+  "explanation": "string",
+  "whyIncorrect": { "wrong1": "why", "wrong2": "why", "wrong3": "why" }
+}`;
+
+      const response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              question: { type: Type.STRING },
+              options: { type: Type.ARRAY, items: { type: Type.STRING } },
+              correctAnswer: { type: Type.STRING },
+              explanation: { type: Type.STRING },
+              whyIncorrect: { type: Type.OBJECT }
+            },
+            required: ["question", "options", "correctAnswer", "explanation"]
+          }
+        }
+      });
+      const parsed = JSON.parse(response.text?.trim() || "{}");
+      if (parsed.options?.includes(parsed.correctAnswer)) {
+        res.json({
+          id: `ai_gen_${Date.now()}`,
+          conceptId: targetConcept,
+          topic: 'Adaptive AI Bank',
+          difficulty: targetDifficulty,
+          numericalDifficulty: targetDifficulty === 'easy' ? 2 : targetDifficulty === 'hard' ? 7 : 4,
+          ...parsed
+        });
+        return;
+      }
+    } catch (_) {
+      // Fallback
+    }
+  }
+
+  // Offline Fallback Question Generator
+  res.json({
+    id: `ai_fallback_${Date.now()}`,
+    conceptId: targetConcept,
+    topic: 'Adaptive Core',
+    difficulty: targetDifficulty,
+    numericalDifficulty: 4,
+    question: `In the context of ${targetConcept.replace(/_/g, ' ')}, which principle governs the lowest energy ground state?`,
+    options: [
+      'Aufbau Principle & Hund’s Rule of maximum multiplicity',
+      'Le Chatelier’s displacement of gas volume',
+      'Faraday’s First Law of electrolytic deposition',
+      'Raoult’s Law of vapor pressure lowering'
+    ],
+    correctAnswer: 'Aufbau Principle & Hund’s Rule of maximum multiplicity',
+    explanation: 'Electrons systematically fill orbitals in order of increasing energy (Aufbau) with parallel spins in degenerate orbitals (Hund’s Rule).',
+    whyIncorrect: {
+      'Le Chatelier’s displacement of gas volume': 'Applies to dynamic chemical equilibria, not electron subshells.',
+      'Faraday’s First Law of electrolytic deposition': 'Governs electrochemistry and mass deposited during electrolysis.',
+      'Raoult’s Law of vapor pressure lowering': 'Governs colligative properties of solutions.'
+    }
+  });
+});
+
 
 // -------------------------------------------------------------------
 // VITE OR STATIC FILE MIDDLEWARE BOOTSTRAPPING

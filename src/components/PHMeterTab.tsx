@@ -1,7 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Beaker, Pipette, HelpCircle, AlertTriangle, Info, Sparkles, CheckCircle2, Droplets } from 'lucide-react';
+import { 
+  Beaker, 
+  Pipette, 
+  HelpCircle, 
+  AlertTriangle, 
+  Info, 
+  Sparkles, 
+  CheckCircle2, 
+  Droplets,
+  Search,
+  Sliders,
+  Database,
+  BarChart2,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  Thermometer
+} from 'lucide-react';
 import { useAuthAndQuiz } from '../context/AuthAndQuizContext';
+import { 
+  searchPHDatabase, 
+  calculatePH, 
+  PH_DATABASE, 
+  SAMPLE_REAL_WORLD_MEASUREMENTS 
+} from '../services/phEngine';
+import { PHCompoundData, PHCalculationResult, RealWorldPHMeasurement } from '../types';
 
 interface PHSample {
   name: string;
@@ -27,8 +51,29 @@ const standardSamples: PHSample[] = [
 
 export const PHMeterTab: React.FC = () => {
   const { recordFeatureUsage } = useAuthAndQuiz();
-  const [selectedSample, setSelectedSample] = useState<PHSample>(standardSamples[4]); // Water
-  const [phValue, setPhValue] = useState<number>(7.0);
+  
+  // Tab mode: Simulation vs Real-World Data
+  const [activeTab, setActiveTab] = useState<'simulation' | 'real-data'>('simulation');
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<PHCompoundData[]>([]);
+  const [selectedCompound, setSelectedCompound] = useState<PHCompoundData | null>(PH_DATABASE[0]); // HCl
+
+  // Solution conditions
+  const [concentration, setConcentration] = useState<number>(0.1);
+  const [volumeMl, setVolumeMl] = useState<number>(100);
+  const [addedWaterMl, setAddedWaterMl] = useState<number>(0);
+  const [temperatureC, setTemperatureC] = useState<number>(25);
+
+  // Thermodynamic Calculation Result
+  const [calcResult, setCalcResult] = useState<PHCalculationResult>(() => 
+    calculatePH(PH_DATABASE[0].id, 0.1, 100, 0, 25)
+  );
+
+  // Standard legacy sample state
+  const [selectedSample, setSelectedSample] = useState<PHSample>(standardSamples[0]);
+  const [phValue, setPhValue] = useState<number>(1.0);
   const [activeIndicator, setActiveIndicator] = useState<'none' | 'methyl-orange' | 'phenolphthalein' | 'universal'>('none');
   const [litmusTest, setLitmusTest] = useState<'none' | 'red' | 'blue'>('none');
   const [isLitmusDipped, setIsLitmusDipped] = useState<boolean>(false);
@@ -36,14 +81,59 @@ export const PHMeterTab: React.FC = () => {
   const [customName, setCustomName] = useState<string>('Custom Solution');
   const [isCustomMode, setIsCustomMode] = useState<boolean>(false);
 
-  // Sync phValue when sample changes
+  // Real world data table
+  const [realWorldData, setRealWorldData] = useState<RealWorldPHMeasurement[]>(SAMPLE_REAL_WORLD_MEASUREMENTS);
+  const [newSampleName, setNewSampleName] = useState<string>('Bench Sample');
+  const [newMeasuredPH, setNewMeasuredPH] = useState<string>('7.15');
+
+  // Handle Search Input
   useEffect(() => {
-    if (!isCustomMode) {
-      setPhValue(selectedSample.ph);
-      // Reset indicator state for fresh test
-      setIsLitmusDipped(false);
+    if (searchQuery.trim().length > 0) {
+      const results = searchPHDatabase(searchQuery);
+      setSearchResults(results);
+    } else {
+      setSearchResults([]);
     }
-  }, [selectedSample, isCustomMode]);
+  }, [searchQuery]);
+
+  // Recalculate pH when compound or conditions change
+  useEffect(() => {
+    if (selectedCompound) {
+      const res = calculatePH(selectedCompound.id, concentration, volumeMl, addedWaterMl, temperatureC);
+      setCalcResult(res);
+      if (!isCustomMode) {
+        setPhValue(res.calculatedPH);
+      }
+    }
+  }, [selectedCompound, concentration, volumeMl, addedWaterMl, temperatureC, isCustomMode]);
+
+  // When a compound from search is clicked
+  const handleSelectCompound = (compound: PHCompoundData) => {
+    setSelectedCompound(compound);
+    setConcentration(compound.standardConcentration || 0.1);
+    setAddedWaterMl(0);
+    setSearchQuery('');
+    setSearchResults([]);
+    setIsCustomMode(false);
+    
+    // Also update legacy sample representation
+    setSelectedSample({
+      name: compound.name,
+      formula: compound.formula,
+      ph: compound.theoreticalPH,
+      type: compound.type,
+      description: compound.description,
+      safety: compound.safety
+    });
+
+    recordFeatureUsage(
+      'phmeter',
+      'pH Compound Search & Lab',
+      `Calculated thermodynamic pH for ${compound.name} (${compound.formula})`,
+      'Laboratory',
+      15
+    );
+  };
 
   // Handle manual pH slider changes
   const handlePHSliderChange = (val: number) => {
@@ -61,7 +151,7 @@ export const PHMeterTab: React.FC = () => {
       recordFeatureUsage(
         'phmeter',
         'pH Meter & Indicator Lab',
-        `Conducted ${indicator} drop test on ${isCustomMode ? customName : selectedSample.name} (pH ${phValue.toFixed(1)})`,
+        `Conducted ${indicator} drop test on ${isCustomMode ? customName : (selectedCompound?.name || selectedSample.name)} (pH ${phValue.toFixed(2)})`,
         'Laboratory',
         20
       );
@@ -77,13 +167,11 @@ export const PHMeterTab: React.FC = () => {
     return { label: 'Strongly Alkaline (Caustic)', color: 'text-purple-400 bg-purple-950/20 border-purple-500/30' };
   };
 
-  // Calculate ion concentrations based on pH
-  // pH = -log10[H3O+] => [H3O+] = 10^-pH
-  // pOH = 14 - pH => [OH-] = 10^-pOH
   const h3oConc = Math.pow(10, -phValue);
   const ohConc = Math.pow(10, -(14 - phValue));
 
   const formatScientific = (num: number) => {
+    if (num <= 0) return "0.0";
     if (num === 1) return "1.0 × 10⁰";
     const exponent = Math.floor(Math.log10(num));
     const mantissa = num / Math.pow(10, exponent);
@@ -97,44 +185,28 @@ export const PHMeterTab: React.FC = () => {
     return String(num).split('').map(char => sups[char] || char).join('');
   };
 
-  // Calculate Universal Indicator Color based on pH
   const getUniversalColor = (ph: number) => {
-    // Return CSS color matching typical pH color spectrum
-    if (ph <= 1) return 'rgba(239, 68, 68, 0.85)'; // Red
-    if (ph <= 3) return 'rgba(249, 115, 22, 0.85)'; // Orange-Red
-    if (ph <= 5) return 'rgba(234, 179, 8, 0.85)'; // Orange/Yellow
-    if (ph <= 6.5) return 'rgba(132, 204, 22, 0.85)'; // Lime Green
-    if (ph <= 7.5) return 'rgba(34, 197, 94, 0.85)'; // True Green
-    if (ph <= 8.5) return 'rgba(20, 184, 166, 0.85)'; // Teal
-    if (ph <= 10) return 'rgba(59, 130, 246, 0.85)'; // Blue
-    if (ph <= 12) return 'rgba(99, 102, 241, 0.85)'; // Indigo
-    return 'rgba(168, 85, 247, 0.9)'; // Deep Purple
+    if (ph <= 1) return 'rgba(239, 68, 68, 0.85)';
+    if (ph <= 3) return 'rgba(249, 115, 22, 0.85)';
+    if (ph <= 5) return 'rgba(234, 179, 8, 0.85)';
+    if (ph <= 6.5) return 'rgba(132, 204, 22, 0.85)';
+    if (ph <= 7.5) return 'rgba(34, 197, 94, 0.85)';
+    if (ph <= 8.5) return 'rgba(20, 184, 166, 0.85)';
+    if (ph <= 10) return 'rgba(59, 130, 246, 0.85)';
+    if (ph <= 12) return 'rgba(99, 102, 241, 0.85)';
+    return 'rgba(168, 85, 247, 0.9)';
   };
 
-  // Calculate Phenolphthalein color based on pH
-  // Colorless below pH 8.2, transitions to fuchsia up to 10
   const getPhenolphthaleinColor = (ph: number) => {
-    if (ph <= 8.2) {
-      return 'rgba(224, 242, 254, 0.15)'; // Completely colorless/light blue tint
-    }
-    if (ph >= 10.0) {
-      return 'rgba(236, 72, 153, 0.85)'; // Deep Fuchsia pink
-    }
-    // Interpolate opacity/intensity
+    if (ph <= 8.2) return 'rgba(224, 242, 254, 0.15)';
+    if (ph >= 10.0) return 'rgba(236, 72, 153, 0.85)';
     const ratio = (ph - 8.2) / 1.8;
     return `rgba(236, 72, 153, ${0.15 + ratio * 0.7})`;
   };
 
-  // Calculate Methyl Orange color based on pH
-  // Red below pH 3.1, Orange from 3.1 to 4.4, Yellow above 4.4
   const getMethylOrangeColor = (ph: number) => {
-    if (ph <= 3.1) {
-      return 'rgba(239, 68, 68, 0.85)'; // Vibrant Red
-    }
-    if (ph >= 4.4) {
-      return 'rgba(234, 179, 8, 0.8)'; // Yellow
-    }
-    // Transition (Orange)
+    if (ph <= 3.1) return 'rgba(239, 68, 68, 0.85)';
+    if (ph >= 4.4) return 'rgba(234, 179, 8, 0.8)';
     const ratio = (ph - 3.1) / 1.3;
     const r = Math.round(239 + (234 - 239) * ratio);
     const g = Math.round(68 + (179 - 68) * ratio);
@@ -142,48 +214,52 @@ export const PHMeterTab: React.FC = () => {
     return `rgba(${r}, ${g}, ${b}, 0.83)`;
   };
 
-  // Standard (no indicator) color represents natural chemical tint
   const getBaseColor = (ph: number) => {
-    // Strongly acidic has mild yellow/red warmth, strongly basic has mild heavy blue-purple density
-    if (ph < 3) return 'rgba(239, 68, 68, 0.08)'; // faint reddish tint
-    if (ph > 11) return 'rgba(168, 85, 247, 0.08)'; // faint purple tint
-    return 'rgba(34, 211, 238, 0.05)'; // neutral clean water blue
+    if (ph < 3) return 'rgba(239, 68, 68, 0.08)';
+    if (ph > 11) return 'rgba(168, 85, 247, 0.08)';
+    return 'rgba(34, 211, 238, 0.05)';
   };
 
-  // Get active solution color inside beaker
   const getActiveSolutionColor = () => {
     switch (activeIndicator) {
-      case 'methyl-orange':
-        return getMethylOrangeColor(phValue);
-      case 'phenolphthalein':
-        return getPhenolphthaleinColor(phValue);
-      case 'universal':
-        return getUniversalColor(phValue);
-      default:
-        return getBaseColor(phValue);
+      case 'methyl-orange': return getMethylOrangeColor(phValue);
+      case 'phenolphthalein': return getPhenolphthaleinColor(phValue);
+      case 'universal': return getUniversalColor(phValue);
+      default: return getBaseColor(phValue);
     }
   };
 
-  // Calculate litmus paper result color
-  // Red litmus stays red in acid/neutral, turns blue in base
-  // Blue litmus stays blue in base/neutral, turns red in acid
   const getLitmusPaperColor = (type: 'red' | 'blue', submerged: boolean) => {
     if (!submerged) {
       return type === 'red' ? 'rgba(239, 68, 68, 0.7)' : 'rgba(59, 130, 246, 0.7)';
     }
-    // Submerged color based on pH
-    if (phValue < 5.0) {
-      return 'rgba(239, 68, 68, 0.8)'; // turns red (acidic)
-    }
-    if (phValue > 8.0) {
-      return 'rgba(59, 130, 246, 0.8)'; // turns blue (alkaline)
-    }
-    // Transition / neutral zone
-    if (type === 'red') {
-      return 'rgba(239, 68, 68, 0.7)'; // stays red
-    } else {
-      return 'rgba(59, 130, 246, 0.7)'; // stays blue
-    }
+    if (phValue < 5.0) return 'rgba(239, 68, 68, 0.8)';
+    if (phValue > 8.0) return 'rgba(59, 130, 246, 0.8)';
+    return type === 'red' ? 'rgba(239, 68, 68, 0.7)' : 'rgba(59, 130, 246, 0.7)';
+  };
+
+  const handleAddManualMeasurement = (e: React.FormEvent) => {
+    e.preventDefault();
+    const phNum = parseFloat(newMeasuredPH);
+    if (isNaN(phNum) || phNum < 0 || phNum > 14) return;
+
+    const newEntry: RealWorldPHMeasurement = {
+      id: `meas-${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      sampleName: newSampleName || 'Lab Sample',
+      formula: selectedCompound?.formula || 'Solution',
+      concentration: concentration,
+      temperature: temperatureC,
+      temperatureC: temperatureC,
+      measuredPH: phNum,
+      theoreticalPH: calcResult.calculatedPH,
+      sensorError: parseFloat((phNum - calcResult.calculatedPH).toFixed(2)),
+      operator: 'Student Analyst'
+    };
+
+    setRealWorldData([newEntry, ...realWorldData]);
+    setNewSampleName('');
+    setNewMeasuredPH('');
   };
 
   const activeClassification = getPHClassification(phValue);
@@ -191,521 +267,641 @@ export const PHMeterTab: React.FC = () => {
   return (
     <div className="space-y-8 select-text" id="ph-meter-tab">
       
-      {/* Overview Intro Banner */}
+      {/* Top Banner */}
       <div className="bg-[#111318] border border-slate-800 rounded-2xl p-6 relative overflow-hidden shadow-sm">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 rounded-full blur-[40px] pointer-events-none" />
+        <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-500/10 rounded-full blur-[50px] pointer-events-none" />
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
-            <span className="px-2.5 py-1 text-[9px] font-mono font-bold text-cyan-400 border border-cyan-500/20 bg-cyan-950/25 rounded-full">
-              LABORATORY DEPT: ANALYTICAL SENSORS
-            </span>
+            <div className="flex items-center space-x-2">
+              <span className="px-2.5 py-1 text-[9px] font-mono font-bold text-cyan-400 border border-cyan-500/20 bg-cyan-950/25 rounded-full">
+                LABORATORY DEPT: THERMODYNAMIC EQUILIBRIUM & ANALYTICAL SENSORS
+              </span>
+              <span className="px-2 py-0.5 text-[9px] font-mono font-bold text-emerald-400 border border-emerald-500/20 bg-emerald-950/20 rounded-full">
+                Ka / Kb Quad Solver Active
+              </span>
+            </div>
             <h2 className="text-xl md:text-2xl font-serif font-black text-white tracking-tight mt-1">
-              Virtual pH Meter & Indicator Lab
+              Virtual pH Meter & Analytical Lab
             </h2>
-            <p className="text-slate-400 text-xs font-sans max-w-xl">
-              An interactive molecular sandbox to explore hydronium ionization densities, test standard school reagents, observe transitions of classic indicators, and run litmus tests on standard or custom chemical solutions.
+            <p className="text-slate-400 text-xs font-sans max-w-2xl">
+              Search any chemical compound, calculate theoretical pH via quadratic equilibrium constants, 
+              simulate volume dilution, test indicator transitions, and compare calculated vs experimental sensor data.
             </p>
           </div>
-          <div className="flex gap-2">
+          
+          <div className="flex items-center gap-2">
+            <div className="flex bg-slate-900 border border-slate-800 p-1 rounded-xl">
+              <button
+                onClick={() => setActiveTab('simulation')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition ${
+                  activeTab === 'simulation' ? 'bg-cyan-500 text-black font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Lab Simulation
+              </button>
+              <button
+                onClick={() => setActiveTab('real-data')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition flex items-center space-x-1 ${
+                  activeTab === 'real-data' ? 'bg-cyan-500 text-black font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Database className="w-3.5 h-3.5 mr-1" />
+                Real-World Data
+              </button>
+            </div>
             <button
               onClick={() => {
                 setActiveIndicator('none');
                 setLitmusTest('none');
                 setIsLitmusDipped(false);
               }}
-              className="px-4 py-2 bg-black/40 hover:bg-black/80 border border-slate-800 rounded-xl text-[10.5px] font-mono uppercase font-bold text-slate-350 transition-all cursor-pointer"
+              className="px-3 py-2 bg-black/40 hover:bg-black/80 border border-slate-800 rounded-xl text-[10.5px] font-mono uppercase font-bold text-slate-300 transition-all cursor-pointer"
             >
-              Clear Indicators
+              Clear Dyes
             </button>
           </div>
         </div>
+
+        {/* Phase 14 Prominent Compound Search Box */}
+        <div className="mt-5 pt-4 border-t border-slate-800/80 relative">
+          <div className="relative">
+            <Search className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search a compound... (e.g., HCl, NaOH, CH3COOH, NH3, H2SO4, HNO3, NaCl, KOH, HBr, Citric Acid)"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-mono shadow-inner"
+            />
+          </div>
+
+          {/* Autocomplete Search Dropdown */}
+          {searchResults.length > 0 && (
+            <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-h-64 overflow-y-auto divide-y divide-slate-800">
+              {searchResults.map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => handleSelectCompound(item)}
+                  className="p-3 hover:bg-slate-800/80 cursor-pointer flex items-center justify-between text-xs transition"
+                >
+                  <div className="space-y-0.5">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-white font-mono">{item.name}</span>
+                      <span className="font-mono text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded text-[11px] border border-cyan-800/40">
+                        {item.formula}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-400">{item.description}</span>
+                  </div>
+                  <div className="text-right flex-shrink-0 ml-3">
+                    <span className="text-[10px] font-mono text-slate-400 block">{item.type}</span>
+                    <span className="text-xs font-mono font-bold text-cyan-300">pH ~{item.theoreticalPH.toFixed(1)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Main Sandbox Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* Left Side: Control Console (6 cols) */}
-        <div className="lg:col-span-5 space-y-6">
+      {activeTab === 'simulation' ? (
+        /* Main Sandbox Grid */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
-          {/* Solution Selector Panel */}
-          <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
-            <div className="flex justify-between items-center border-b border-slate-850 pb-2">
-              <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
-                1. Select Specimen or Compound
-              </span>
-              <button
-                onClick={() => {
-                  setIsCustomMode(prev => !prev);
-                  if (!isCustomMode) {
-                    setCustomName('Custom Solution');
-                  }
-                }}
-                className={`text-[9px] font-mono font-bold px-2 py-0.5 border rounded uppercase transition-all ${isCustomMode ? 'border-cyan-400 bg-cyan-950/20 text-cyan-300' : 'border-slate-800 hover:border-slate-700 text-slate-500'}`}
-              >
-                {isCustomMode ? 'Locked: Custom' : 'Switch to Custom Slider'}
-              </button>
-            </div>
+          {/* Left Side: Control Console (5 cols) */}
+          <div className="lg:col-span-5 space-y-6">
+            
+            {/* 1. Compound & Dilution Calibration Panel */}
+            <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
+              <div className="flex justify-between items-center border-b border-slate-850 pb-2">
+                <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center">
+                  <Sliders className="w-3.5 h-3.5 mr-1.5 text-cyan-400" />
+                  1. Chemical Specimen & Dilution
+                </span>
+                <button
+                  onClick={() => setIsCustomMode(prev => !prev)}
+                  className={`text-[9px] font-mono font-bold px-2 py-0.5 border rounded uppercase transition-all ${
+                    isCustomMode ? 'border-cyan-400 bg-cyan-950/20 text-cyan-300' : 'border-slate-800 hover:border-slate-700 text-slate-500'
+                  }`}
+                >
+                  {isCustomMode ? 'Locked: Custom' : 'Switch to Slider'}
+                </button>
+              </div>
 
-            {/* Standard Samples dropdown */}
-            {!isCustomMode ? (
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-800">
+              {/* Selected Compound Badge */}
+              <div className="p-3 bg-black/40 border border-slate-800 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] font-mono text-slate-500 block uppercase">Selected Compound</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm font-bold text-white font-mono">
+                      {selectedCompound ? selectedCompound.name : selectedSample.name}
+                    </span>
+                    <span className="text-xs font-mono text-cyan-300 font-semibold">
+                      ({selectedCompound ? selectedCompound.formula : selectedSample.formula})
+                    </span>
+                  </div>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 bg-slate-800 text-slate-300 font-mono rounded border border-slate-700">
+                  {selectedCompound ? selectedCompound.type : selectedSample.type}
+                </span>
+              </div>
+
+              {/* Quick Select Carousel */}
+              <div className="space-y-1">
+                <span className="text-[9px] font-mono text-slate-500 uppercase">Quick Standards</span>
+                <div className="grid grid-cols-2 gap-1.5 max-h-[140px] overflow-y-auto pr-1">
                   {standardSamples.map((sample) => (
                     <button
                       key={sample.name}
                       onClick={() => {
-                        setSelectedSample(sample);
-                        setIsCustomMode(false);
+                        const foundInDb = PH_DATABASE.find(c => c.formula.toLowerCase() === sample.formula.toLowerCase());
+                        if (foundInDb) {
+                          handleSelectCompound(foundInDb);
+                        } else {
+                          setSelectedSample(sample);
+                          setSelectedCompound(null);
+                          setPhValue(sample.ph);
+                          setIsCustomMode(false);
+                        }
                       }}
-                      className={`p-2.5 rounded-lg border text-left font-mono transition-all text-[11px] flex flex-col justify-between h-[64px] ${selectedSample.name === sample.name ? 'border-cyan-500 bg-cyan-950/15 text-cyan-200' : 'border-slate-850 hover:border-slate-800 bg-black/15 text-slate-400'}`}
+                      className={`p-2 rounded-lg border text-left font-mono transition text-[10px] flex items-center justify-between ${
+                        (selectedCompound?.name === sample.name || selectedSample.name === sample.name)
+                          ? 'border-cyan-500 bg-cyan-950/20 text-cyan-200' 
+                          : 'border-slate-850 hover:border-slate-800 bg-black/20 text-slate-400'
+                      }`}
                     >
-                      <span className="font-bold truncate w-full">{sample.name}</span>
-                      <div className="flex justify-between items-center w-full text-[9px] opacity-75 mt-1 font-mono">
-                        <span className="text-slate-500">{sample.formula}</span>
-                        <span className="text-cyan-400 font-bold bg-cyan-950/40 px-1.5 rounded">pH {sample.ph.toFixed(1)}</span>
-                      </div>
+                      <span className="truncate mr-1">{sample.name}</span>
+                      <span className="text-cyan-400 font-bold flex-shrink-0">pH {sample.ph.toFixed(1)}</span>
                     </button>
                   ))}
                 </div>
               </div>
-            ) : (
-              <div className="space-y-3 pt-1 animate-fadeIn">
-                <div className="space-y-1">
-                  <label className="text-[9px] font-mono font-bold text-slate-500 uppercase">Custom Specimen Name</label>
-                  <input
-                    type="text"
-                    value={customName}
-                    onChange={(e) => setCustomName(e.target.value.slice(0, 30))}
-                    className="w-full text-xs bg-black/50 border border-slate-800 focus:border-cyan-500 p-2.5 rounded-xl text-slate-200 outline-none font-mono"
-                  />
-                </div>
-                <div className="p-3 bg-black/25 rounded-lg border border-slate-850 text-[10px] text-slate-500 leading-normal">
-                  You have activated <strong className="text-cyan-300">Infinite Slidability</strong>. Use the pH sensor readout slider below to dynamically calibrate acid-alkali proportions in real-time.
-                </div>
-              </div>
-            )}
-          </div>
 
-          {/* Interactive pH Sensor Calibrator Slider */}
-          <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
-            <div className="flex justify-between items-center">
-              <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
-                2. pH Calibrator (0.0 to 14.0)
-              </label>
-              <span className={`px-2 py-0.5 text-[9px] font-mono rounded font-bold uppercase ${activeClassification.color}`}>
-                {activeClassification.label}
-              </span>
-            </div>
-
-            <div className="space-y-4">
-              {/* Giant Digital Readout */}
-              <div className="bg-black/60 border border-slate-850 rounded-xl p-4 flex justify-between items-center">
-                <div className="space-y-0.5">
-                  <span className="text-[9px] font-mono font-bold text-slate-550 block uppercase tracking-wide">Chemical Class</span>
-                  <span className="text-xs font-bold text-slate-350">{isCustomMode ? customName : selectedSample.name}</span>
+              {/* Phase 14: Modify Concentration & Dilution */}
+              <div className="pt-2 border-t border-slate-800/80 space-y-3">
+                <div className="flex justify-between items-center text-xs font-mono">
+                  <span className="text-slate-400">Concentration (C):</span>
+                  <span className="text-cyan-400 font-bold">{concentration.toFixed(3)} M</span>
                 </div>
-                <div className="text-right">
-                  <span className="text-[9px] font-mono text-slate-500 block uppercase">Calculated pH</span>
-                  <span className="text-3xl font-black font-mono text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.3)]">
-                    {phValue.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Slider Controller */}
-              <div className="space-y-2">
                 <input
                   type="range"
-                  min="0.0"
-                  max="14.0"
-                  step="0.1"
-                  value={phValue}
-                  onChange={(e) => handlePHSliderChange(parseFloat(e.target.value))}
-                  className="w-full h-2 bg-gradient-to-r from-red-500 via-orange-400 via-yellow-400 via-green-500 via-teal-400 via-blue-500 to-purple-600 rounded-full appearance-none cursor-pointer focus:outline-none"
-                  style={{
-                    backgroundSize: '100% 100%'
-                  }}
+                  min="0.001"
+                  max="1.0"
+                  step="0.005"
+                  value={concentration}
+                  onChange={(e) => setConcentration(parseFloat(e.target.value))}
+                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
                 />
                 
-                {/* Scale markers */}
-                <div className="flex justify-between text-[9px] font-mono text-slate-550 px-1">
-                  <span>0 (Acid)</span>
-                  <span>4</span>
-                  <span>7 (Neutral)</span>
-                  <span>10</span>
-                  <span>14 (Alkali)</span>
+                {/* Dilution Control */}
+                <div className="flex justify-between items-center text-xs font-mono pt-1">
+                  <span className="text-slate-400 flex items-center">
+                    <Droplets className="w-3.5 h-3.5 mr-1 text-blue-400" />
+                    Water Added (Dilution):
+                  </span>
+                  <span className="text-blue-400 font-bold">+{addedWaterMl} mL ({volumeMl + addedWaterMl} mL total)</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="900"
+                  step="50"
+                  value={addedWaterMl}
+                  onChange={(e) => setAddedWaterMl(parseInt(e.target.value))}
+                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-400"
+                />
+
+                {/* Temperature */}
+                <div className="flex justify-between items-center text-xs font-mono pt-1">
+                  <span className="text-slate-400 flex items-center">
+                    <Thermometer className="w-3.5 h-3.5 mr-1 text-amber-400" />
+                    Temperature:
+                  </span>
+                  <span className="text-amber-400 font-bold">{temperatureC}°C</span>
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Reagents / Chemical Indicators Laboratory Selector */}
-          <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
-            <div>
-              <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
-                3. Apply Chemical Indicator Drop
-              </span>
-              <p className="text-[10px] text-slate-500 mt-1">
-                Trigger a chemical reaction drop. Watch the molecular color density spread in the flask.
-              </p>
-            </div>
+            {/* 2. Interactive pH Sensor Calibrator Slider */}
+            <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
+                  2. Dynamic Sensor Calibration (0.0 to 14.0)
+                </label>
+                <span className={`px-2 py-0.5 text-[9px] font-mono rounded font-bold uppercase ${activeClassification.color}`}>
+                  {activeClassification.label}
+                </span>
+              </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                {
-                  id: 'methyl-orange',
-                  name: 'Methyl Orange',
-                  range: 'pH 3.1–4.4',
-                  color: 'Red (acid) ↔ Yellow (alkali)',
-                  desc: 'A synthetic azo dye that displays sharp protonated transformations.'
-                },
-                {
-                  id: 'phenolphthalein',
-                  name: 'Phenolphthalein',
-                  range: 'pH 8.2–10.0',
-                  color: 'Colorless ↔ Fuchsia Pink',
-                  desc: 'A weak phthalein dye acid that is colorless in standard acids but intensely pink in base.'
-                },
-                {
-                  id: 'universal',
-                  name: 'Universal Reagent',
-                  range: 'pH 0.0–14.0',
-                  color: 'Full Spectrum Rainbow',
-                  desc: 'A mixed formulation of multiple indicators showing continuous color steps.'
-                },
-                {
-                  id: 'none',
-                  name: 'Pure Specimen (None)',
-                  range: 'N/A',
-                  color: 'No Indicator Added',
-                  desc: 'Remove dyes to analyze the pure native appearance of the liquid.'
-                }
-              ].map(ind => (
-                <button
-                  key={ind.id}
-                  disabled={isDripping}
-                  onClick={() => triggerDrip(ind.id as any)}
-                  className={`p-3 rounded-xl border text-left transition-all h-[105px] flex flex-col justify-between cursor-pointer ${activeIndicator === ind.id ? 'border-cyan-500 bg-cyan-950/10' : 'border-slate-850 hover:border-slate-800 bg-black/15 disabled:opacity-40'}`}
-                >
+              <div className="space-y-4">
+                {/* Digital Readout */}
+                <div className="bg-black/60 border border-slate-850 rounded-xl p-4 flex justify-between items-center">
                   <div className="space-y-0.5">
-                    <span className={`text-[11px] font-bold font-mono block ${activeIndicator === ind.id ? 'text-cyan-300' : 'text-slate-400'}`}>
-                      {ind.name}
+                    <span className="text-[9px] font-mono font-bold text-slate-500 block uppercase tracking-wide">
+                      {isCustomMode ? 'Sensor Mode' : 'Theoretical Equilibrium pH'}
                     </span>
-                    <span className="text-[9px] text-slate-550 font-mono block">{ind.range}</span>
+                    <span className="text-xs font-bold text-slate-350">
+                      {isCustomMode ? customName : (selectedCompound?.name || selectedSample.name)}
+                    </span>
                   </div>
-                  <div className="text-[9px] text-slate-500 font-sans leading-tight mt-1 line-clamp-2">
-                    {ind.desc}
+                  <div className="text-right">
+                    <span className="text-[9px] font-mono text-slate-500 block uppercase">Sensor pH</span>
+                    <span className="text-3xl font-black font-mono text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.3)]">
+                      {phValue.toFixed(2)}
+                    </span>
                   </div>
-                </button>
-              ))}
+                </div>
+
+                {/* Slider */}
+                <div className="space-y-2">
+                  <input
+                    type="range"
+                    min="0.0"
+                    max="14.0"
+                    step="0.1"
+                    value={phValue}
+                    onChange={(e) => handlePHSliderChange(parseFloat(e.target.value))}
+                    className="w-full h-2 bg-gradient-to-r from-red-500 via-orange-400 via-yellow-400 via-green-500 via-teal-400 via-blue-500 to-purple-600 rounded-full appearance-none cursor-pointer focus:outline-none"
+                  />
+                  <div className="flex justify-between text-[9px] font-mono text-slate-500 px-1">
+                    <span>0 (Acid)</span>
+                    <span>4</span>
+                    <span>7 (Neutral)</span>
+                    <span>10</span>
+                    <span>14 (Alkali)</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Litmus Paper Laboratory Tests */}
-            <div className="border-t border-slate-850 pt-4 space-y-3">
+            {/* 3. Reagents / Chemical Indicators */}
+            <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
               <div>
                 <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
-                  4. Litmus Paper Analytical Strips
+                  3. Chemical Indicator Drop
                 </span>
-                <p className="text-[10px] text-slate-500 mt-1 font-sans">
-                  Choose a paper strip formulation, then dip it into the beaker solution to test for acid/base.
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Trigger indicator drop and watch the molecular color change in the beaker flask.
                 </p>
               </div>
 
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setLitmusTest('red');
-                    setIsLitmusDipped(false);
-                  }}
-                  className={`flex-1 py-2.5 rounded-lg border font-mono text-[10.5px] font-bold transition-all ${litmusTest === 'red' ? 'border-red-500/55 bg-red-950/20 text-red-300' : 'border-slate-850 hover:border-slate-800 text-slate-400'}`}
-                >
-                  🔴 Prepare Red Litmus
-                </button>
-                <button
-                  onClick={() => {
-                    setLitmusTest('blue');
-                    setIsLitmusDipped(false);
-                  }}
-                  className={`flex-1 py-2.5 rounded-lg border font-mono text-[10.5px] font-bold transition-all ${litmusTest === 'blue' ? 'border-blue-500/55 bg-blue-950/20 text-blue-300' : 'border-slate-850 hover:border-slate-800 text-slate-400'}`}
-                >
-                  🔵 Prepare Blue Litmus
-                </button>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'methyl-orange', name: 'Methyl Orange', range: 'pH 3.1–4.4', desc: 'Red in acid, Yellow in alkali' },
+                  { id: 'phenolphthalein', name: 'Phenolphthalein', range: 'pH 8.2–10.0', desc: 'Colorless in acid, Fuchsia pink in base' },
+                  { id: 'universal', name: 'Universal Reagent', range: 'pH 0.0–14.0', desc: 'Continuous rainbow spectrum' },
+                  { id: 'none', name: 'Pure Solution', range: 'N/A', desc: 'Remove dyes to view native appearance' }
+                ].map(ind => (
+                  <button
+                    key={ind.id}
+                    disabled={isDripping}
+                    onClick={() => triggerDrip(ind.id as any)}
+                    className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
+                      activeIndicator === ind.id ? 'border-cyan-500 bg-cyan-950/20' : 'border-slate-850 hover:border-slate-800 bg-black/20 disabled:opacity-40'
+                    }`}
+                  >
+                    <div>
+                      <span className={`text-[11px] font-bold font-mono block ${activeIndicator === ind.id ? 'text-cyan-300' : 'text-slate-400'}`}>
+                        {ind.name}
+                      </span>
+                      <span className="text-[9px] text-slate-500 font-mono block">{ind.range}</span>
+                    </div>
+                    <div className="text-[9px] text-slate-500 font-sans leading-tight mt-1 line-clamp-1">
+                      {ind.desc}
+                    </div>
+                  </button>
+                ))}
               </div>
 
-              {litmusTest !== 'none' && (
-                <div className="flex items-center justify-between p-3 bg-black/45 rounded-xl border border-slate-850 animate-fadeIn">
-                  <div className="space-y-0.5">
-                    <span className="text-[9.5px] font-mono font-bold text-amber-400 uppercase block">Strip Status ready</span>
-                    <span className="text-[10.5px] font-sans text-slate-350">
-                      {litmusTest === 'red' ? 'Acid-sensitive Red Litmus' : 'Alkali-sensitive Blue Litmus'} loaded on clamp.
-                    </span>
-                  </div>
+              {/* Litmus Paper Tests */}
+              <div className="border-t border-slate-850 pt-3 space-y-2">
+                <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
+                  4. Litmus Analytical Strips
+                </span>
+                <div className="flex gap-2">
                   <button
-                    onClick={() => setIsLitmusDipped(prev => !prev)}
-                    className="px-3.5 py-1.5 bg-cyan-500 hover:bg-cyan-400 text-black text-[10px] uppercase font-mono font-black rounded-lg transition-all"
+                    onClick={() => { setLitmusTest('red'); setIsLitmusDipped(false); }}
+                    className={`flex-1 py-2 rounded-lg border font-mono text-[10px] font-bold transition ${
+                      litmusTest === 'red' ? 'border-red-500/60 bg-red-950/20 text-red-300' : 'border-slate-850 hover:border-slate-800 text-slate-400'
+                    }`}
                   >
-                    {isLitmusDipped ? 'Retract Clamp' : 'Dip Strip into Flask'}
+                    🔴 Red Litmus Strip
+                  </button>
+                  <button
+                    onClick={() => { setLitmusTest('blue'); setIsLitmusDipped(false); }}
+                    className={`flex-1 py-2 rounded-lg border font-mono text-[10px] font-bold transition ${
+                      litmusTest === 'blue' ? 'border-blue-500/60 bg-blue-950/20 text-blue-300' : 'border-slate-850 hover:border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    🔵 Blue Litmus Strip
                   </button>
                 </div>
-              )}
-            </div>
 
-          </div>
-
-        </div>
-
-        {/* Right Side: Beaker Visualization & Ion calculations (7 cols) */}
-        <div className="lg:col-span-7 space-y-6 flex flex-col">
-          
-          {/* Beaker Lab Simulation Stage */}
-          <div className="bg-[#111318] border border-slate-800 rounded-xl p-6 flex flex-col md:flex-row items-center gap-8 shadow-sm flex-1 relative overflow-hidden">
-            
-            {/* Visual Beaker Flask display */}
-            <div className="relative w-full md:w-1/2 flex justify-center items-center h-[290px]">
-              
-              {/* Dropper pipette on top when dripping indicator */}
-              <AnimatePresence>
-                {isDripping && (
-                  <motion.div
-                    initial={{ y: -60, opacity: 0 }}
-                    animate={{ y: -10, opacity: 1 }}
-                    exit={{ y: -60, opacity: 0 }}
-                    transition={{ duration: 0.4 }}
-                    className="absolute top-2 z-20 flex flex-col items-center"
-                  >
-                    <Pipette className="text-cyan-400" size={32} />
-                    {/* Drip droplet */}
-                    <motion.div
-                      initial={{ y: 0, scale: 1, opacity: 1 }}
-                      animate={{ y: 130, scale: 0.8, opacity: [1, 1, 0] }}
-                      transition={{ duration: 0.8, delay: 0.3 }}
-                      className="w-2.5 h-2.5 rounded-full mt-1"
-                      style={{
-                        backgroundColor: activeIndicator === 'methyl-orange' ? 'rgba(239,68,68,0.9)' :
-                                         activeIndicator === 'phenolphthalein' ? 'rgba(236,72,153,0.9)' :
-                                         activeIndicator === 'universal' ? 'rgba(168,85,247,0.9)' : 'rgba(34,211,238,0.8)'
-                      }}
-                    />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Litmus Paper Clamped Mechanism */}
-              <AnimatePresence>
                 {litmusTest !== 'none' && (
-                  <motion.div
-                    initial={{ y: -150 }}
-                    animate={{ y: isLitmusDipped ? 0 : -80 }}
-                    exit={{ y: -150 }}
-                    transition={{ type: 'spring', damping: 25, stiffness: 120 }}
-                    className="absolute top-4 left-1/2 -ml-6 w-12 h-44 z-20 pointer-events-none flex flex-col items-center"
-                  >
-                    {/* Clamping device body */}
-                    <div className="w-8 h-8 bg-zinc-700 rounded-t border-t border-zinc-500 shadow-md flex items-center justify-center font-mono text-[8px] text-zinc-300">
-                      CLAMP
-                    </div>
-                    {/* Upper paper (not submerged) */}
-                    <div
-                      className="w-4 h-16 transition-colors duration-500 shadow"
-                      style={{ backgroundColor: getLitmusPaperColor(litmusTest as any, false) }}
-                    />
-                    {/* Submerged paper line (submerges fully in beaker) */}
-                    <div
-                      className="w-4 h-20 transition-colors duration-500 shadow border-t border-slate-900/10"
-                      style={{ backgroundColor: getLitmusPaperColor(litmusTest as any, isLitmusDipped) }}
-                    />
-                  </motion.div>
+                  <div className="flex items-center justify-between p-2.5 bg-black/45 rounded-xl border border-slate-850">
+                    <span className="text-[10px] font-mono text-slate-300">
+                      Strip ready: {litmusTest === 'red' ? 'Acid-sensitive' : 'Alkali-sensitive'}
+                    </span>
+                    <button
+                      onClick={() => setIsLitmusDipped(prev => !prev)}
+                      className="px-3 py-1 bg-cyan-500 hover:bg-cyan-400 text-black text-[9.5px] uppercase font-mono font-black rounded-lg transition"
+                    >
+                      {isLitmusDipped ? 'Retract Strip' : 'Dip into Beaker'}
+                    </button>
+                  </div>
                 )}
-              </AnimatePresence>
-
-              {/* Beaker Container */}
-              <div className="relative w-44 h-56 border-4 border-slate-700/80 rounded-b-3xl border-t-0 shadow-lg flex items-end overflow-hidden">
-                
-                {/* Side volume graduation notches */}
-                <div className="absolute right-2 top-4 bottom-4 w-4 flex flex-col justify-between text-[7px] font-mono text-slate-550 select-none pointer-events-none">
-                  <span>- 400ml</span>
-                  <span>- 300ml</span>
-                  <span>- 200ml</span>
-                  <span>- 100ml</span>
-                </div>
-
-                {/* Submerged liquid */}
-                <motion.div
-                  className="w-full h-[65%] transition-colors duration-700 ease-out relative"
-                  style={{ backgroundColor: getActiveSolutionColor() }}
-                  animate={isDripping ? {
-                    scaleY: [1, 1.03, 0.98, 1],
-                  } : {}}
-                  transition={{ duration: 0.6 }}
-                >
-                  {/* Ripples on surface of liquid */}
-                  <div className="absolute top-0 left-0 right-0 h-1.5 bg-white/20 animate-pulse rounded-t-full" />
-
-                  {/* Scientific bubbles floating */}
-                  {[...Array(6)].map((_, i) => (
-                    <motion.span
-                      key={i}
-                      animate={{
-                        y: [-10, -110],
-                        opacity: [0, 0.7, 0],
-                        x: [0, Math.sin(i) * 10]
-                      }}
-                      transition={{
-                        repeat: Infinity,
-                        duration: 3 + i,
-                        delay: i * 0.4,
-                        ease: 'linear'
-                      }}
-                      className="absolute w-1 h-1 rounded-full border border-white/30 bg-white/10"
-                      style={{
-                        bottom: '5%',
-                        left: `${20 + i * 12}%`
-                      }}
-                    />
-                  ))}
-                </motion.div>
-
-                {/* Cyber display tag inside beaker container */}
-                <div className="absolute left-4 top-4 bg-black/70 border border-slate-800 p-1.5 rounded text-[8px] font-mono text-slate-500 tracking-tight z-10 select-none">
-                  TEMP: 25.0°C <br />
-                  PRES: 1.0 ATM
-                </div>
-
-                {/* Submersion limit indicator line */}
-                <div className="absolute left-0 right-0 bottom-[65%] border-t border-cyan-400/20 border-dashed pointer-events-none" />
-
               </div>
-
-            </div>
-
-            {/* Science details panel alongside the beaker */}
-            <div className="flex-1 space-y-4 font-mono text-xs w-full">
-              <div className="border-b border-slate-850 pb-2 flex items-center gap-1.5">
-                <Sparkles size={13} className="text-cyan-400" />
-                <span className="font-bold text-cyan-300 uppercase">Chemical Reaction Details</span>
-              </div>
-
-              {/* Chemical metadata descriptors */}
-              {!isCustomMode ? (
-                <div className="space-y-3">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-500">Compound Class:</span>
-                    <span className="text-slate-300 font-bold">{selectedSample.type}</span>
-                  </div>
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-500">Molecule Formula:</span>
-                    <span className="text-cyan-350 font-bold">{selectedSample.formula}</span>
-                  </div>
-                  <p className="text-[10px] text-slate-400 leading-relaxed font-sans font-medium">
-                    {selectedSample.description}
-                  </p>
-                  <div className="p-2.5 bg-red-950/10 border border-red-900/35 rounded-lg flex gap-1.5 items-start text-[9.5px] leading-normal font-sans">
-                    <AlertTriangle size={12} className="text-red-400 shrink-0 mt-0.5 animate-pulse" />
-                    <div>
-                      <strong className="text-red-300 block font-mono text-[8px] uppercase tracking-wider">Safety Hazard Level</strong>
-                      <span className="text-slate-350">{selectedSample.safety}</span>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-500">Specimen Name:</span>
-                    <span className="text-slate-300 font-bold truncate max-w-[120px]">{customName}</span>
-                  </div>
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-500">State:</span>
-                    <span className="text-amber-400 font-bold">Dynamic Calibration Mode</span>
-                  </div>
-                  <p className="text-[10px] text-slate-400 leading-relaxed font-sans font-medium">
-                    You are manually adjusting the concentration of acid (H₃O⁺) versus alkali (OH⁻). Acidic pH values represent abundance of hydronium cations, while basic/alkaline solutions indicate a saturation of hydroxide anions.
-                  </p>
-                  <div className="p-2.5 bg-cyan-950/20 border border-cyan-850 rounded-lg flex gap-1.5 items-center text-[10px] font-sans">
-                    <CheckCircle2 size={13} className="text-cyan-400 shrink-0" />
-                    <span className="text-slate-300 font-medium">Fully balanced equilibrium simulated at 25°C.</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Indicator summary readout */}
-              <div className="pt-2 border-t border-slate-850 text-[10.5px]">
-                <span className="text-slate-500 block uppercase text-[9px] tracking-wider mb-1 font-bold">Active Indicator Dye</span>
-                <div className="flex justify-between items-center bg-black/40 p-2 border border-slate-850 rounded-lg">
-                  <span className="text-slate-400">
-                    {activeIndicator === 'none' ? 'None (Pure Water Appearance)' :
-                     activeIndicator === 'methyl-orange' ? 'Methyl Orange (Azo Dye)' :
-                     activeIndicator === 'phenolphthalein' ? 'Phenolphthalein (pH Probe)' : 'Universal Indicator Reagent'}
-                  </span>
-                  <div
-                    className="w-3.5 h-3.5 rounded-full border border-white/20"
-                    style={{ backgroundColor: getActiveSolutionColor() }}
-                  />
-                </div>
-              </div>
-
             </div>
 
           </div>
 
-          {/* Quantitative Ion Concentration Panel */}
-          <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm font-mono text-xs">
-            <div className="border-b border-slate-850 pb-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                5. Spectral Quantitative Log: Ion Concentrations
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Right Side: Beaker Visualization & Rigorous Thermodynamic Results (7 cols) */}
+          <div className="lg:col-span-7 space-y-6 flex flex-col">
+            
+            {/* Beaker Lab Simulation Stage */}
+            <div className="bg-[#111318] border border-slate-800 rounded-xl p-6 flex flex-col md:flex-row items-center gap-8 shadow-sm flex-1 relative overflow-hidden">
               
-              {/* Hydronium display */}
-              <div className="bg-black/40 border border-slate-850 p-3.5 rounded-xl space-y-2 relative">
-                <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-red-400 font-bold uppercase tracking-wider">[H₃O⁺] Hydronium Ion</span>
-                  <span className="text-[8.5px] text-slate-500">Acidic density</span>
+              {/* Visual Beaker Flask display */}
+              <div className="relative w-full md:w-1/2 flex justify-center items-center h-[280px]">
+                
+                {/* Dropper pipette animation */}
+                <AnimatePresence>
+                  {isDripping && (
+                    <motion.div
+                      initial={{ y: -60, opacity: 0 }}
+                      animate={{ y: -10, opacity: 1 }}
+                      exit={{ y: -60, opacity: 0 }}
+                      transition={{ duration: 0.4 }}
+                      className="absolute top-2 z-20 flex flex-col items-center"
+                    >
+                      <Pipette className="text-cyan-400" size={32} />
+                      <motion.div
+                        initial={{ y: 0, scale: 1, opacity: 1 }}
+                        animate={{ y: 130, scale: 0.8, opacity: [1, 1, 0] }}
+                        transition={{ duration: 0.8, delay: 0.3 }}
+                        className="w-2.5 h-2.5 rounded-full mt-1"
+                        style={{
+                          backgroundColor: activeIndicator === 'methyl-orange' ? 'rgba(239,68,68,0.9)' :
+                                           activeIndicator === 'phenolphthalein' ? 'rgba(236,72,153,0.9)' :
+                                           activeIndicator === 'universal' ? 'rgba(168,85,247,0.9)' : 'rgba(34,211,238,0.8)'
+                        }}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Litmus Paper Clamped Mechanism */}
+                <AnimatePresence>
+                  {litmusTest !== 'none' && (
+                    <motion.div
+                      initial={{ y: -150 }}
+                      animate={{ y: isLitmusDipped ? 0 : -80 }}
+                      exit={{ y: -150 }}
+                      transition={{ type: 'spring', damping: 25, stiffness: 120 }}
+                      className="absolute top-4 left-1/2 -ml-6 w-12 h-44 z-20 pointer-events-none flex flex-col items-center"
+                    >
+                      <div className="w-8 h-8 bg-zinc-700 rounded-t border-t border-zinc-500 shadow-md flex items-center justify-center font-mono text-[8px] text-zinc-300">
+                        CLAMP
+                      </div>
+                      <div
+                        className="w-4 h-16 transition-colors duration-500 shadow"
+                        style={{ backgroundColor: getLitmusPaperColor(litmusTest as any, false) }}
+                      />
+                      <div
+                        className="w-4 h-20 transition-colors duration-500 shadow border-t border-slate-900/10"
+                        style={{ backgroundColor: getLitmusPaperColor(litmusTest as any, isLitmusDipped) }}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Beaker Container */}
+                <div className="relative w-44 h-56 border-4 border-slate-700/80 rounded-b-3xl border-t-0 shadow-lg flex items-end overflow-hidden">
+                  
+                  {/* Graduations */}
+                  <div className="absolute right-2 top-4 bottom-4 w-4 flex flex-col justify-between text-[7px] font-mono text-slate-500 select-none pointer-events-none">
+                    <span>- 500ml</span>
+                    <span>- 350ml</span>
+                    <span>- 200ml</span>
+                    <span>- 100ml</span>
+                  </div>
+
+                  {/* Submerged liquid */}
+                  <motion.div
+                    className="w-full h-[65%] transition-colors duration-700 ease-out relative"
+                    style={{ backgroundColor: getActiveSolutionColor() }}
+                    animate={isDripping ? { scaleY: [1, 1.03, 0.98, 1] } : {}}
+                    transition={{ duration: 0.6 }}
+                  >
+                    <div className="absolute top-0 left-0 right-0 h-1.5 bg-white/20 animate-pulse rounded-t-full" />
+                    {[...Array(6)].map((_, i) => (
+                      <motion.span
+                        key={i}
+                        animate={{
+                          y: [-10, -110],
+                          opacity: [0, 0.7, 0],
+                          x: [0, Math.sin(i) * 10]
+                        }}
+                        transition={{
+                          repeat: Infinity,
+                          duration: 3 + i,
+                          delay: i * 0.4,
+                          ease: 'linear'
+                        }}
+                        className="absolute w-1 h-1 rounded-full border border-white/30 bg-white/10"
+                        style={{ bottom: '5%', left: `${20 + i * 12}%` }}
+                      />
+                    ))}
+                  </motion.div>
+
+                  <div className="absolute left-4 top-4 bg-black/70 border border-slate-800 p-1.5 rounded text-[8px] font-mono text-slate-500 tracking-tight z-10 select-none">
+                    TEMP: {temperatureC}.0°C <br />
+                    VOL: {volumeMl + addedWaterMl} mL
+                  </div>
+                  <div className="absolute left-0 right-0 bottom-[65%] border-t border-cyan-400/20 border-dashed pointer-events-none" />
                 </div>
-                <div className="text-xl font-bold text-slate-200">
-                  {formatScientific(h3oConc)} <span className="text-xs text-slate-500 font-normal">M</span>
-                </div>
-                <div className="text-[9px] text-slate-550 leading-relaxed font-sans">
-                  Represents the moles of hydrogen cations per liter of solvent. Higher values represent stronger acids.
-                </div>
-                <div className="absolute right-3 bottom-3 text-red-500/10 pointer-events-none select-none text-2xl font-black">
-                  H⁺
-                </div>
+
               </div>
 
-              {/* Hydroxide display */}
-              <div className="bg-black/40 border border-slate-850 p-3.5 rounded-xl space-y-2 relative">
-                <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-purple-400 font-bold uppercase tracking-wider">[OH⁻] Hydroxide Ion</span>
-                  <span className="text-[8.5px] text-slate-500">Alkaline density</span>
+              {/* Science details panel */}
+              <div className="flex-1 space-y-3 font-mono text-xs w-full">
+                <div className="border-b border-slate-850 pb-2 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles size={13} className="text-cyan-400" />
+                    <span className="font-bold text-cyan-300 uppercase">Chemical Identity</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/30">
+                    THEORETICAL MODEL
+                  </span>
                 </div>
-                <div className="text-xl font-bold text-slate-200">
-                  {formatScientific(ohConc)} <span className="text-xs text-slate-500 font-normal">M</span>
-                </div>
-                <div className="text-[9px] text-slate-550 leading-relaxed font-sans">
-                  Represents the moles of hydroxide anions per liter of solvent. Higher values represent stronger alkalis.
-                </div>
-                <div className="absolute right-3 bottom-3 text-purple-500/10 pointer-events-none select-none text-2xl font-black">
-                  OH⁻
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-slate-400">Class:</span>
+                    <span className="text-slate-200 font-bold">{selectedCompound ? selectedCompound.type : selectedSample.type}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-slate-400">Formula:</span>
+                    <span className="text-cyan-300 font-bold">{selectedCompound ? selectedCompound.formula : selectedSample.formula}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-relaxed font-sans font-medium">
+                    {selectedCompound ? selectedCompound.description : selectedSample.description}
+                  </p>
+                  
+                  {/* Safety */}
+                  <div className="p-2 bg-red-950/10 border border-red-900/35 rounded-lg flex gap-1.5 items-start text-[9.5px] leading-normal font-sans">
+                    <AlertTriangle size={12} className="text-red-400 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-red-300 block font-mono text-[8px] uppercase tracking-wider">Safety Hazard</strong>
+                      <span className="text-slate-350">{selectedCompound ? selectedCompound.safety : selectedSample.safety}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
             </div>
 
-            {/* Autoionization Constant Equation */}
-            <div className="bg-black/60 border border-slate-900 p-3 rounded-lg text-center text-[10px] text-slate-500 font-bold flex flex-col md:flex-row md:justify-between items-center gap-2">
-              <span>Autoionization Product: K_w = [H₃O⁺] × [OH⁻] = 1.00 × 10⁻¹⁴</span>
-              <span className="text-cyan-405">
-                Current Product: {(h3oConc * ohConc).toExponential(2)} M²
-              </span>
+            {/* Phase 14 & 21: Full Scientific Breakdown Result */}
+            <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm font-mono text-xs">
+              <div className="border-b border-slate-850 pb-2 flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-350 uppercase tracking-wider block">
+                  Thermodynamic Solution Properties
+                </span>
+                <span className="text-[9px] text-cyan-400 bg-cyan-950/30 px-2 py-0.5 rounded font-mono">
+                  Confidence: {calcResult.confidence}%
+                </span>
+              </div>
+
+              {/* 4 Quantitative Metrics */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="p-3 bg-black/50 border border-slate-850 rounded-xl text-center">
+                  <span className="text-[9px] text-slate-500 uppercase block">pH</span>
+                  <span className="text-lg font-bold text-cyan-300">{calcResult.calculatedPH.toFixed(2)}</span>
+                </div>
+                <div className="p-3 bg-black/50 border border-slate-850 rounded-xl text-center">
+                  <span className="text-[9px] text-slate-500 uppercase block">pOH</span>
+                  <span className="text-lg font-bold text-purple-300">{calcResult.calculatedPOH.toFixed(2)}</span>
+                </div>
+                <div className="p-3 bg-black/50 border border-slate-850 rounded-xl text-center">
+                  <span className="text-[9px] text-slate-500 uppercase block">[H₃O⁺]</span>
+                  <span className="text-sm font-bold text-red-300">{formatScientific(calcResult.hConcentration)} M</span>
+                </div>
+                <div className="p-3 bg-black/50 border border-slate-850 rounded-xl text-center">
+                  <span className="text-[9px] text-slate-500 uppercase block">[OH⁻]</span>
+                  <span className="text-sm font-bold text-blue-300">{formatScientific(calcResult.ohConcentration)} M</span>
+                </div>
+              </div>
+
+              {/* Method & Scientific Reference */}
+              <div className="space-y-2 text-[10px] text-slate-400 bg-slate-950/60 p-3 rounded-lg border border-slate-850">
+                <div className="flex items-start space-x-2">
+                  <Info className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="text-slate-300 block">Calculation Method:</strong>
+                    <span>{calcResult.method}</span>
+                  </div>
+                </div>
+                <div className="flex items-start space-x-2 pt-1 border-t border-slate-900">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="text-slate-300 block">Assumptions & Authority Source:</strong>
+                    <span>{calcResult.assumptions} • Source: {calcResult.dataSource}</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
           </div>
 
         </div>
+      ) : (
+        /* Real-World Data Tab (Phase 14 & 21) */
+        <div className="bg-[#111318] border border-slate-800 rounded-2xl p-6 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            <div>
+              <h3 className="text-base font-bold text-white font-mono flex items-center">
+                <Database className="w-4 h-4 mr-2 text-cyan-400" />
+                Real-World Bench Measurements vs Theoretical Predictions
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Authoritative comparison tracking experimental sensor drift, temperature calibration, and ionic activity coefficients.
+              </p>
+            </div>
+            
+            {/* Manual Entry Form */}
+            <form onSubmit={handleAddManualMeasurement} className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                placeholder="Sample Name"
+                value={newSampleName}
+                onChange={(e) => setNewSampleName(e.target.value)}
+                className="bg-slate-950 border border-slate-700 px-2.5 py-1.5 text-xs text-white rounded-lg font-mono focus:outline-none focus:border-cyan-500 w-32"
+              />
+              <input
+                type="number"
+                step="0.01"
+                placeholder="Meas. pH"
+                value={newMeasuredPH}
+                onChange={(e) => setNewMeasuredPH(e.target.value)}
+                className="bg-slate-950 border border-slate-700 px-2.5 py-1.5 text-xs text-white rounded-lg font-mono focus:outline-none focus:border-cyan-500 w-24"
+              />
+              <button
+                type="submit"
+                className="px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-mono text-xs font-semibold rounded-lg flex items-center transition"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Add Reading
+              </button>
+            </form>
+          </div>
 
-      </div>
+          {/* Measurements Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left font-mono text-xs">
+              <thead className="bg-slate-950/80 text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th className="p-3">Timestamp</th>
+                  <th className="p-3">Sample Specimen</th>
+                  <th className="p-3">Formula</th>
+                  <th className="p-3">Conc. (M)</th>
+                  <th className="p-3">Temp (°C)</th>
+                  <th className="p-3 text-cyan-400">Calculated pH</th>
+                  <th className="p-3 text-emerald-400">Measured pH</th>
+                  <th className="p-3">Sensor Delta (Δ)</th>
+                  <th className="p-3">Operator</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                {realWorldData.map((row) => (
+                  <tr key={row.id} className="hover:bg-slate-900/40">
+                    <td className="p-3 text-slate-500 text-[11px]">{row.timestamp}</td>
+                    <td className="p-3 font-semibold text-white">{row.sampleName}</td>
+                    <td className="p-3 text-cyan-400">{row.formula || '—'}</td>
+                    <td className="p-3">{row.concentration !== undefined ? row.concentration : '—'}</td>
+                    <td className="p-3">{(row.temperatureC ?? row.temperature)}°C</td>
+                    <td className="p-3 font-bold text-cyan-300">{row.theoreticalPH !== undefined ? row.theoreticalPH.toFixed(2) : '—'}</td>
+                    <td className="p-3 font-bold text-emerald-300">{row.measuredPH.toFixed(2)}</td>
+                    <td className="p-3">
+                      {row.sensorError !== undefined ? (
+                        <span className={`px-2 py-0.5 rounded text-[10px] ${
+                          Math.abs(row.sensorError) <= 0.05 
+                            ? 'bg-emerald-950/50 text-emerald-400 border border-emerald-800/40' 
+                            : 'bg-amber-950/50 text-amber-400 border border-amber-800/40'
+                        }`}>
+                          {row.sensorError > 0 ? `+${row.sensorError.toFixed(2)}` : row.sensorError.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500 text-[10px]">—</span>
+                      )}
+                    </td>
+                    <td className="p-3 text-slate-400">{row.operator || 'Bench Analyst'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Educational Indicator Reference charts */}
       <div className="bg-[#111318] border border-slate-800 rounded-xl p-6 space-y-4 shadow-sm">
@@ -716,11 +912,10 @@ export const PHMeterTab: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 font-sans text-xs">
-          
           <div className="space-y-2">
             <strong className="text-slate-350 block font-mono text-[10.5px]">Methyl Orange (pH 3.1–4.4)</strong>
             <p className="text-slate-450 leading-relaxed text-[10px]">
-              Methyl Orange is an azo dye which exhibits a transition color change from red in acidic media to yellow in basic media. Under pH 3.1, it exists predominantly as the protonated red quinoid structure. Between 3.1 and 4.4, an equilibrium mix creates an orange intermediate. Above 4.4, it is deprotonated yellow.
+              Azo dye with sharp protonated transformations. Below pH 3.1, exists predominantly as protonated red quinoid structure. Between 3.1 and 4.4, equilibrium mix creates orange. Above 4.4, deprotonated yellow.
             </p>
             <div className="h-3 w-full rounded overflow-hidden flex text-[8.5px] text-black font-bold text-center">
               <div className="bg-red-500 w-[25%] flex items-center justify-center">pH &lt; 3.1 (Red)</div>
@@ -732,7 +927,7 @@ export const PHMeterTab: React.FC = () => {
           <div className="space-y-2">
             <strong className="text-slate-350 block font-mono text-[10.5px]">Phenolphthalein (pH 8.2–10.0)</strong>
             <p className="text-slate-450 leading-relaxed text-[10px]">
-              Phenolphthalein is a weak acid chemical sensor. Below pH 8.2, the lactone form is colorless and lacks visible light absorption in the visible spectrum. As pH exceeds 8.2, hydroxide ions remove phenolic protons, opening the lactone ring to form a quinoid structure with conjugation that strongly absorbs green light, reflecting a fuchsia/magenta color.
+              Weak acid chemical probe. Below pH 8.2, colorless lactone form without visible light absorption. Above 8.2, hydroxide ions remove phenolic protons, opening the lactone ring to form conjugated fuchsia pink.
             </p>
             <div className="h-3 w-full rounded overflow-hidden flex text-[8.5px] text-black font-bold text-center">
               <div className="bg-sky-950/20 text-slate-500 border border-slate-850 w-[60%] flex items-center justify-center">pH &lt; 8.2 (Colorless)</div>
@@ -744,7 +939,7 @@ export const PHMeterTab: React.FC = () => {
           <div className="space-y-2">
             <strong className="text-slate-350 block font-mono text-[10.5px]">Universal Indicator (pH 0.0–14.0)</strong>
             <p className="text-slate-450 leading-relaxed text-[10px]">
-              Unlike single-dye indicator systems, Universal indicator is a custom solution consisting of a mixture of methyl red, bromothymol blue, phenolphthalein, and thymol blue. This creates a highly descriptive rainbow color transition across the entire scale from pH 0.0 to 14.0, serving as an excellent visual index.
+              Custom composite formulation consisting of methyl red, bromothymol blue, phenolphthalein, and thymol blue, yielding a continuous rainbow spectrum across the entire 0.0 to 14.0 scale.
             </p>
             <div className="h-3 w-full rounded overflow-hidden flex text-[8px] text-black font-black text-center">
               <div className="bg-red-500 w-[20%]">Red</div>
@@ -754,7 +949,6 @@ export const PHMeterTab: React.FC = () => {
               <div className="bg-purple-600 text-white w-[20%]">Purple</div>
             </div>
           </div>
-
         </div>
       </div>
 

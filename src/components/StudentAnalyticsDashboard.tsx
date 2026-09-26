@@ -35,7 +35,10 @@ export const StudentAnalyticsDashboard: React.FC<StudentAnalyticsDashboardProps>
     completeAssignment, 
     adaptiveQuestions,
     recordAdaptiveAttempt,
-    recordFeatureUsage
+    recordFeatureUsage,
+    spacedRepetitionSchedule,
+    dueConcepts,
+    diagnosticResult
   } = useAuthAndQuiz();
   const [trendTimeframe, setTrendTimeframe] = useState<'7d' | '30d' | 'all'>('7d');
   const [selectedConceptFilter, setSelectedConceptFilter] = useState<string>('all');
@@ -506,6 +509,107 @@ export const StudentAnalyticsDashboard: React.FC<StudentAnalyticsDashboardProps>
           ))}
         </div>
       </div>
+
+      {/* 3.5. SPACED REPETITION REVIEW QUEUE (PHASE 18) */}
+      <div className="bg-[#0e1117] border border-amber-500/25 rounded-2xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(245,158,11,0.04)] space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+              <Clock size={16} />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white font-mono tracking-wide uppercase flex items-center gap-2">
+                Spaced Repetition Review Queue
+                <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                  dueConcepts.length > 0 
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
+                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                }`}>
+                  {dueConcepts.length} concepts due for review today
+                </span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                SM-2 Leitner algorithmic scheduling prevents cognitive memory decay and optimizes long-term chemical retention.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {dueConcepts.length === 0 ? (
+          <div className="p-4 bg-black/30 rounded-xl border border-slate-800 text-center text-xs text-slate-400 font-mono">
+            🎉 All concepts up to date! No reviews due today. Excellent retention schedule maintenance.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {dueConcepts.map((item) => (
+              <div
+                key={item.concept_id}
+                className="p-3.5 bg-black/40 border border-amber-500/20 hover:border-amber-500/40 rounded-xl flex items-center justify-between transition"
+              >
+                <div>
+                  <span className="text-xs font-bold text-white block">{item.concept_name}</span>
+                  <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                    <span>Interval: {item.interval_days}d</span>
+                    <span>•</span>
+                    <span className="text-amber-400">Retention: {item.retention_score}%</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => onStartAdaptivePractice?.(item.concept_id, 'medium')}
+                  className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-black text-xs font-mono font-bold rounded-lg transition"
+                >
+                  Review Now
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 3.6. DIAGNOSTIC BENCHMARK REPORT (PHASE 1) */}
+      {diagnosticResult && (
+        <div className="bg-[#0e1117] border border-purple-500/25 rounded-2xl p-6 relative overflow-hidden shadow-[0_0_30px_rgba(168,85,247,0.04)] space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                <GraduationCap size={16} />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-white font-mono tracking-wide uppercase flex items-center gap-2">
+                  Diagnostic Chemistry Benchmark Report
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                    Accuracy: {diagnosticResult.accuracy}%
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Baseline assessment administered on {diagnosticResult.timestamp.split('T')[0]}.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
+            <div className="p-3 bg-black/40 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase block">Calibrated Starting Tier</span>
+              <span className="text-sm font-bold text-cyan-300">
+                {diagnosticResult.overallScore >= 75 ? 'Hard Tier' : diagnosticResult.overallScore >= 50 ? 'Medium Tier' : 'Foundational'}
+              </span>
+            </div>
+            <div className="p-3 bg-black/40 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase block">Strongest Disciplines</span>
+              <span className="text-sm font-bold text-emerald-300 truncate block">
+                {diagnosticResult.strongestConcepts.join(', ') || 'General Chemistry'}
+              </span>
+            </div>
+            <div className="p-3 bg-black/40 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase block">Primary Gap Focus Areas</span>
+              <span className="text-sm font-bold text-amber-300 truncate block">
+                {diagnosticResult.weakestConcepts.join(', ') || 'None Detected'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 4. DUAL COLUMN: STRENGTHS & WEAK AREAS SUMMARY */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
