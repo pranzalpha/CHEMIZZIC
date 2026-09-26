@@ -11,6 +11,12 @@ import ReactionPredictorTab from './components/ReactionPredictorTab';
 import AIChemistTab from './components/AIChemistTab';
 import { QuizArenaTab } from './components/QuizArenaTab';
 import { LeaderboardTab } from './components/LeaderboardTab';
+import { PHMeterTab } from './components/PHMeterTab';
+import { StudentAnalyticsDashboard } from './components/StudentAnalyticsDashboard';
+import { TeacherAnalyticsDashboard } from './components/TeacherAnalyticsDashboard';
+import { DailyStreakActivityReport } from './components/DailyStreakActivityReport';
+import { AdminPortalDashboard } from './components/AdminPortalDashboard';
+import { GlobalAIChemistChatbot } from './components/GlobalAIChemistChatbot';
 import { AuthModal } from './components/AuthModal';
 import { useAuthAndQuiz } from './context/AuthAndQuizContext';
 import { ChemizicLogo } from './components/ChemizicLogo';
@@ -18,14 +24,25 @@ import {
   Search, FlaskConical, Scale, GraduationCap, Compass, BookOpen, 
   Settings, Check, Mail, Phone, MapPin, Sparkles, AlertTriangle, 
   CheckCircle2, Flame, AlertOctagon, HelpCircle, Activity, Beaker, Atom, Cpu,
-  Trophy, User, LogOut, ShieldAlert, Home
+  Trophy, User, LogOut, ShieldAlert, Home, BarChart3, Users, Brain, Shield
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function App() {
-  const { currentUser, logout } = useAuthAndQuiz();
-  const [activeTab, setActiveTab] = useState<'home' | 'explorer' | 'periodic' | 'reaction' | 'chemist' | 'about' | 'quiz' | 'leaderboard'>('home');
+  const { currentUser, logout, recordFeatureUsage } = useAuthAndQuiz();
+  const [activeTab, setActiveTab] = useState<'home' | 'explorer' | 'periodic' | 'reaction' | 'chemist' | 'phmeter' | 'about' | 'quiz' | 'leaderboard' | 'student_analytics' | 'teacher_analytics' | 'daily_report' | 'admin_portal'>('home');
   const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  // Target concept and difficulty when launching quiz from analytics
+  const [adaptiveConceptTarget, setAdaptiveConceptTarget] = useState<string | undefined>(undefined);
+  const [adaptiveDifficultyTarget, setAdaptiveDifficultyTarget] = useState<'easy' | 'medium' | 'hard' | undefined>(undefined);
+
+  const handleStartAdaptivePractice = (conceptId?: string, difficulty?: 'easy' | 'medium' | 'hard') => {
+    setAdaptiveConceptTarget(conceptId);
+    setAdaptiveDifficultyTarget(difficulty);
+    setActiveTab('quiz');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedChemical, setSelectedChemical] = useState<LocalChemical>(popularChemicals[0]);
@@ -247,11 +264,15 @@ export default function App() {
           <div className="flex gap-1 overflow-x-auto py-2 scrollbar-none">
             {[
               { id: 'home', label: 'Home Hub', icon: Home },
+              { id: 'student_analytics', label: 'Student Analytics 📊', icon: BarChart3 },
+              { id: 'teacher_analytics', label: 'Teacher Portal 🧑‍🏫', icon: Users },
+              { id: 'admin_portal', label: 'Admin Portal 🛡️', icon: Shield },
+              { id: 'quiz', label: 'Quiz Arena 🎮', icon: Sparkles },
               { id: 'explorer', label: 'Structure Explorer', icon: FlaskConical },
               { id: 'periodic', label: 'Periodic Table Explorer', icon: Compass },
               { id: 'reaction', label: 'AI Reaction Predictor', icon: Scale },
+              { id: 'phmeter', label: 'pH Meter Lab 🧪', icon: Beaker },
               { id: 'chemist', label: 'AI Chemist Tutor', icon: GraduationCap },
-              { id: 'quiz', label: 'Quiz Arena 🎮', icon: Sparkles },
               { id: 'leaderboard', label: 'Rankings 🏆', icon: Trophy },
               { id: 'about', label: 'Documentation & Info', icon: BookOpen }
             ].map(tab => {
@@ -365,6 +386,33 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[
                   {
+                    id: 'student_analytics',
+                    title: 'Adaptive Learning Analytics 📊',
+                    icon: BarChart3,
+                    color: 'text-cyan-300 border-cyan-500/30 hover:border-cyan-400 hover:shadow-[0_0_20px_rgba(34,211,238,0.2)]',
+                    glow: 'bg-cyan-500/15',
+                    tag: 'AI-POWERED MASTERY',
+                    bullets: ['10 Core concept mastery tracking', 'Dynamic Bayesian difficulty scaling', 'Personalized learning recommendations']
+                  },
+                  {
+                    id: 'teacher_analytics',
+                    title: 'Teacher Portal & Heatmap 🧑‍🏫',
+                    icon: Users,
+                    color: 'text-purple-300 border-purple-500/30 hover:border-purple-400 hover:shadow-[0_0_20px_rgba(168,85,247,0.2)]',
+                    glow: 'bg-purple-500/15',
+                    tag: 'FACULTY & COHORTS',
+                    bullets: ['Concept vs student mastery heatmap', 'Intervention alerts for struggling learners', 'Data-driven classroom AI insights']
+                  },
+                  {
+                    id: 'quiz',
+                    title: 'Game Quiz Arena 🎮',
+                    icon: Sparkles,
+                    color: 'text-amber-455 border-amber-500/20 hover:border-amber-400 hover:shadow-[0_0_20px_rgba(245,158,11,0.1)]',
+                    glow: 'bg-amber-500/10',
+                    tag: 'COMPETITIVE ARENA',
+                    bullets: ['Adaptive & timed chemistry challenges', 'Mistake analysis & follow-up practice', 'Verify academic accomplishments']
+                  },
+                  {
                     id: 'explorer',
                     title: 'Molecule Structure Explorer',
                     icon: FlaskConical,
@@ -392,6 +440,15 @@ export default function App() {
                     bullets: ['Identify reaction products dynamically', 'Balance stoichiometry chemical equations', 'Simulate thermodynamics values']
                   },
                   {
+                    id: 'phmeter',
+                    title: 'pH Meter & Indicator Lab 🧪',
+                    icon: Beaker,
+                    color: 'text-cyan-455 border-cyan-500/20 hover:border-cyan-400 hover:shadow-[0_0_20px_rgba(34,211,238,0.1)]',
+                    glow: 'bg-cyan-500/10',
+                    tag: 'INTERACTIVE SENSORS',
+                    bullets: ['Simulate acid-base ionization densities', 'Methyl Orange & Phenolphthalein drop tests', 'Litmus paper diagnostics with real color waves']
+                  },
+                  {
                     id: 'chemist',
                     title: 'AI Chemist Tutor',
                     icon: GraduationCap,
@@ -399,15 +456,6 @@ export default function App() {
                     glow: 'bg-emerald-500/10',
                     tag: 'ACADEMIC REASONING',
                     bullets: ['Generative chemistry voice reading', 'Explain organic & inorganic chemistry', 'Homework assistance chat']
-                  },
-                  {
-                    id: 'quiz',
-                    title: 'Game Quiz Arena 🎮',
-                    icon: Sparkles,
-                    color: 'text-amber-455 border-amber-500/20 hover:border-amber-400 hover:shadow-[0_0_20px_rgba(245,158,11,0.1)]',
-                    glow: 'bg-amber-500/10',
-                    tag: 'COMPETITIVE ARENA',
-                    bullets: ['Timed chemistry challenges', 'Gain experience level ups', 'Verify academic accomplishments']
                   },
                   {
                     id: 'leaderboard',
@@ -670,6 +718,32 @@ export default function App() {
                         </div>
                       </div>
                     )}
+
+                    {/* Quick Lab Actions */}
+                    <div className="border-t border-slate-800 pt-4 flex flex-wrap items-center justify-between gap-3 font-mono text-xs">
+                      <button
+                        onClick={() => {
+                          setActiveTab('reaction');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-purple-950/40 hover:bg-purple-900/40 border border-purple-500/30 text-purple-300 flex items-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Scale size={13} /> Predict Reactions for {selectedChemical.name} →
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          window.dispatchEvent(new CustomEvent('open-ai-chemist-tutor', {
+                            detail: {
+                              prompt: `Explain the molecular structure, bonding characteristics, and chemical properties of ${selectedChemical.name} (${selectedChemical.formula}).`
+                            }
+                          }));
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/40 border border-cyan-500/30 text-cyan-300 flex items-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <GraduationCap size={13} /> Ask AI Chemist Tutor 🔬
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -789,7 +863,19 @@ export default function App() {
 
         {/* TAB WORKSPACE 2: Elements Periodic Table Grid explorer */}
         {activeTab === 'periodic' && (
-          <PeriodicTable onSearchElement={handlePeriodicElementSearch} />
+          <PeriodicTable 
+            onSearchElement={handlePeriodicElementSearch}
+            onNavigateToTab={(tab, query) => {
+              if (query) {
+                setSearchQuery(query);
+                if (tab === 'explorer') {
+                  handleSearch(query);
+                }
+              }
+              setActiveTab(tab as any);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
         )}
 
         {/* TAB WORKSPACE 3: AI Reaction equations stoichiometry solver */}
@@ -802,9 +888,76 @@ export default function App() {
           <AIChemistTab />
         )}
 
+        {/* TAB WORKSPACE: Interactive pH Meter and Indicator Lab */}
+        {activeTab === 'phmeter' && (
+          <PHMeterTab />
+        )}
+
+        {/* TAB WORKSPACE: Student Analytics & Adaptive Learning System */}
+        {activeTab === 'student_analytics' && (
+          <StudentAnalyticsDashboard 
+            onStartAdaptivePractice={handleStartAdaptivePractice}
+            onOpenDailyReport={() => {
+              setActiveTab('daily_report');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onNavigateToTab={(tabId) => {
+              setActiveTab(tabId as any);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        )}
+
+        {/* TAB WORKSPACE: Daily Streak & Feature Activity Ledger */}
+        {activeTab === 'daily_report' && (
+          <DailyStreakActivityReport 
+            onBackToAnalytics={() => {
+              setActiveTab('student_analytics');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onNavigateToTab={(tabId) => {
+              setActiveTab(tabId as any);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        )}
+
+        {/* TAB WORKSPACE: Teacher Portal & Class Heatmap */}
+        {activeTab === 'teacher_analytics' && (
+          <TeacherAnalyticsDashboard 
+            onSwitchToStudentPortal={() => {
+              setActiveTab('student_analytics');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onOpenAuthModal={() => setAuthModalOpen(true)}
+          />
+        )}
+
+        {/* TAB WORKSPACE: System Administrator Command Node */}
+        {activeTab === 'admin_portal' && (
+          <AdminPortalDashboard 
+            onSwitchToStudentPortal={() => {
+              setActiveTab('student_analytics');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onSwitchToTeacherPortal={() => {
+              setActiveTab('teacher_analytics');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onOpenAuthModal={() => setAuthModalOpen(true)}
+          />
+        )}
+
         {/* TAB WORKSPACE 6: Gamified Chemistry Quiz Arena */}
         {activeTab === 'quiz' && (
-          <QuizArenaTab />
+          <QuizArenaTab 
+            initialConceptId={adaptiveConceptTarget}
+            initialDifficulty={adaptiveDifficultyTarget}
+            onNavigateToDashboard={() => {
+              setActiveTab('student_analytics');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
         )}
 
         {/* TAB WORKSPACE 7: Top Scholars Leaderboard / Rankings */}
@@ -833,7 +986,7 @@ export default function App() {
               </p>
 
               <div className="bg-cyan-950/10 border border-cyan-900/30 rounded-xl p-4 text-xs text-slate-300 leading-relaxed font-sans font-medium">
-                Designed and conceptualized by first-year Computer Science & Engineering students of{' '}
+                Designed and conceptualized by Second-year Computer Science & Engineering students of{' '}
                 <a 
                   href="https://share.google/M7wIMYupNAiMfZx2e"
                   target="_blank"
@@ -852,16 +1005,16 @@ export default function App() {
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {[
-                    'Prantik Das',
-                    'Ishita Parvin',
-                    'Soumodip Khalko',
-                    'Priyajeet Ghosh'
+                    { name: 'Prantik Das', role: 'Frontend & UI Developer' },
+                    { name: 'Kuntal Banerjee', role: 'Resource and Data Collector' },
+                    { name: 'Agnidipta Sarkar', role: 'Fulltime Backend Developer' },
+                    { name: 'Shruti Saha', role: 'Designer and Tester' }
                   ].map((member) => (
-                    <div key={member} className="flex items-center gap-3 bg-[#0A0B0E]/60 p-3 rounded-lg border border-slate-850 hover:border-cyan-500/30 transition-all">
-                      <div className="w-1.5 h-1.5 rounded-full bg-cyan-500" />
+                    <div key={member.name} className="flex items-center gap-3 bg-[#0A0B0E]/60 p-3 rounded-lg border border-slate-850 hover:border-cyan-500/30 transition-all">
+                      <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_8px_#06b6d4]" />
                       <div>
-                        <p className="text-xs font-bold text-white font-mono">{member}</p>
-                        <p className="text-[10px] text-slate-500 font-sans font-medium">CSE Student • Developer</p>
+                        <p className="text-xs font-bold text-white font-mono">{member.name}</p>
+                        <p className="text-[10px] text-cyan-400 font-sans font-medium">{member.role}</p>
                       </div>
                     </div>
                   ))}
@@ -964,6 +1117,9 @@ export default function App() {
       </main>
 
       <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
+
+      {/* FLOATING PERSISTENT AI CHEMIST TUTOR CHATBOT ACROSS THE ENTIRE PAGE */}
+      <GlobalAIChemistChatbot currentTabContext={activeTab} />
 
       {/* FOOTER: Standard humble scientific credit label */}
       <footer className="relative z-30 border-t border-cyan-500/10 bg-black/40 py-8 mt-16 backdrop-blur-md">

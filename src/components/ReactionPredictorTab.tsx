@@ -4,31 +4,49 @@
  */
 
 import React, { useState } from 'react';
-import { ReactionDetail } from '../types';
-import { Play, Sparkles, AlertCircle, History, RefreshCcw, Flame, ThermometerSun, Zap, ArrowRight, HelpCircle } from 'lucide-react';
+import { ReactionDetail, ReactionMatrixResult } from '../types';
+import { useAuthAndQuiz } from '../context/AuthAndQuizContext';
+import { 
+  Play, Sparkles, AlertCircle, RefreshCw, Flame, ThermometerSun, 
+  Zap, ArrowRight, FlaskConical, Sliders, ShieldAlert, BookOpen, 
+  HelpCircle, Layers, ChevronRight, Activity, Clock, Check, X
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function ReactionPredictorTab() {
-  const [reactantsInput, setReactantsInput] = useState<string>('CH4 + O2');
-  const [loading, setLoading] = useState<boolean>(false);
-  const [result, setResult] = useState<ReactionDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { recordFeatureUsage } = useAuthAndQuiz();
+  
+  // Tab Mode: 'predictor' (Universal Predictor for any compound) vs 'editor' (Run every possible reaction matrix)
+  const [activeMode, setActiveMode] = useState<'predictor' | 'editor'>('predictor');
 
-  // Predefined reaction examples
-  const examples = [
-    { label: "Methane Combustion", text: "CH4 + O2" },
-    { label: "Neutralization", text: "HCl + NaOH" },
-    { label: "Haber Process", text: "N2 + H2" },
-    { label: "Photosynthesis", text: "CO2 + H2O" },
-    { label: "Rust Formation", text: "Fe + O2" }
+  // ==========================================
+  // MODE 1: UNIVERSAL REACTION PREDICTOR STATE
+  // ==========================================
+  const [reactantsInput, setReactantsInput] = useState<string>('CH4 + O2');
+  const [loadingPredict, setLoadingPredict] = useState<boolean>(false);
+  const [predictResult, setPredictResult] = useState<ReactionDetail | null>(null);
+  const [predictError, setPredictError] = useState<string | null>(null);
+
+  // Predefined reaction examples for every compound class
+  const universalExamples = [
+    { label: "Methane Combustion", text: "CH4 + O2", category: "Combustion" },
+    { label: "Single Compound: Caffeine", text: "Caffeine", category: "Bio-Organic" },
+    { label: "Single Compound: Ethanol", text: "Ethanol", category: "Organic" },
+    { label: "Acid-Base Neutralization", text: "HCl + NaOH", category: "Neutralization" },
+    { label: "Haber-Bosch Nitrogen Fixation", text: "N2 + H2", category: "Industrial Redox" },
+    { label: "Photosynthesis Biosynthesis", text: "CO2 + H2O", category: "Biochemistry" },
+    { label: "Aspirin Hydrolysis", text: "Acetylsalicylic acid + H2O", category: "Pharmaceutical" },
+    { label: "Thermite Energetics", text: "Fe2O3 + Al", category: "High Exotherm" },
+    { label: "Benzene Nitration", text: "Benzene + HNO3", category: "Aromatic Substitution" }
   ];
 
   const handlePredict = async (inputStr: string) => {
-    const reactants = (inputStr || '').trim();
+    const reactants = (inputStr || reactantsInput || '').trim();
     if (!reactants) return;
 
-    setLoading(true);
-    setError(null);
-    setResult(null);
+    setLoadingPredict(true);
+    setPredictError(null);
+    setPredictResult(null);
 
     try {
       const response = await fetch('/api/reaction/predict', {
@@ -39,260 +57,602 @@ export default function ReactionPredictorTab() {
 
       if (!response.ok) {
         const errJson = await response.json();
-        throw new Error(errJson.error || "Failed to solve chemical equation.");
+        throw new Error(errJson.error || "Failed to solve chemical reaction equation.");
       }
 
       const data: ReactionDetail = await response.json();
-      setResult(data);
+      setPredictResult(data);
+      recordFeatureUsage(
+        'reaction',
+        'AI Universal Reaction Predictor',
+        `Predicted reaction: ${data.balancedEquation || reactants} (${data.reactionType})`,
+        'Calculations',
+        25
+      );
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "An unexpected network error occurred predicting this reaction.");
+      setPredictError(err.message || "An unexpected error occurred predicting this reaction.");
     } finally {
-      setLoading(false);
+      setLoadingPredict(false);
+    }
+  };
+
+  // ==========================================
+  // MODE 2: AI PREDICTION EDITOR STATE
+  // ==========================================
+  const [editorReactants, setEditorReactants] = useState<string>('Ethanol + Acetic Acid');
+  const [editorTemp, setEditorTemp] = useState<number>(85); // Celsius
+  const [editorPressure, setEditorPressure] = useState<string>('1 atm');
+  const [editorSolvent, setEditorSolvent] = useState<string>('Toluene');
+  const [editorCatalyst, setEditorCatalyst] = useState<string>('Concentrated H2SO4');
+  const [editorAtmosphere, setEditorAtmosphere] = useState<string>('Inert N2 Gas');
+  
+  const [loadingEditor, setLoadingEditor] = useState<boolean>(false);
+  const [editorResult, setEditorResult] = useState<ReactionMatrixResult | null>(null);
+  const [editorError, setEditorError] = useState<string | null>(null);
+
+  const handleRunAllPathways = async () => {
+    const reactants = editorReactants.trim();
+    if (!reactants) return;
+
+    setLoadingEditor(true);
+    setEditorError(null);
+
+    try {
+      const response = await fetch('/api/reaction/editor-run-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reactants,
+          conditions: {
+            temperature: `${editorTemp}°C`,
+            pressure: editorPressure,
+            solvent: editorSolvent,
+            catalyst: editorCatalyst,
+            atmosphere: editorAtmosphere
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json();
+        throw new Error(errJson.error || "Failed to simulate reaction matrix.");
+      }
+
+      const data: ReactionMatrixResult = await response.json();
+      setEditorResult(data);
+      recordFeatureUsage(
+        'reaction',
+        'AI Reaction Prediction Editor',
+        `Simulated reaction matrix for ${reactants} at ${editorTemp}°C (${data.primaryPathway?.yieldPercentage || '85%'} yield)`,
+        'Calculations',
+        35
+      );
+    } catch (err: any) {
+      console.error(err);
+      setEditorError(err.message || "Failed to execute reaction prediction matrix.");
+    } finally {
+      setLoadingEditor(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Search Input bar and example nodes */}
-      <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 shadow-sm">
-        <div className="flex items-center gap-2 mb-3">
-          <FlaskConicalIcon className="text-cyan-400" />
-          <h3 className="text-sm font-semibold text-white">Stoichiometric Reaction Predictor</h3>
-        </div>
-        
-        <p className="text-xs text-slate-400 mb-4 leading-relaxed">
-          Enter reactants (e.g. formulas separated by a "+" sign) to predict the resulting chemical products, balance the chemical equation, and determine heat flow energetics.
-        </p>
+    <div className="space-y-6 select-text">
+      
+      {/* HEADER & DUAL MODE SELECTOR */}
+      <div className="bg-[#111318] border border-cyan-500/20 rounded-2xl p-5 shadow-sm space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <FlaskConical className="text-cyan-400" size={20} />
+              <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
+                Universal AI Reaction Predictor & Prediction Editor
+              </h2>
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/30 uppercase">
+                Internet Grounded
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Simulate chemical transformations for <strong className="text-cyan-300">every compound available in the world</strong>, or tune reaction conditions to uncover all competitive pathways!
+            </p>
+          </div>
 
-        {/* Form elements */}
-        <form onSubmit={(e) => { e.preventDefault(); handlePredict(reactantsInput); }} className="flex flex-col sm:flex-row gap-2">
-          <input
-            type="text"
-            value={reactantsInput}
-            onChange={(e) => setReactantsInput(e.target.value)}
-            placeholder="Type reactants... (e.g. HCl + NaOH, Propane + Oxygen)"
-            className="flex-1 text-xs bg-[#0A0B0E] px-4 py-2.5 border border-slate-800 focus:border-cyan-500 focus:bg-[#0A0B0E] rounded-lg outline-none font-mono text-slate-200 font-semibold"
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-800 text-white font-semibold text-xs rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer"
-          >
-            {loading ? (
-              <span className="w-4.5 h-4.5 border-2 border-white/50 border-t-white rounded-full animate-spin" />
-            ) : (
-              <Play size={13} className="fill-white" />
-            )}
-            Predict Products
-          </button>
-        </form>
-
-        {/* Examples chips list bar */}
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Templates:</span>
-          {examples.map((item) => (
+          {/* Mode Switcher Tabs */}
+          <div className="flex p-1 bg-black/60 border border-slate-800 rounded-xl font-mono text-xs shrink-0">
             <button
-              key={item.text}
-              type="button"
-              onClick={() => { setReactantsInput(item.text); handlePredict(item.text); }}
-              className="px-2.5 py-1 text-[10px] bg-[#0A0B0E] border border-slate-800 hover:bg-cyan-950/40 hover:border-cyan-800 hover:text-cyan-400 text-slate-400 rounded-md transition-all font-sans font-medium cursor-pointer"
+              onClick={() => setActiveMode('predictor')}
+              className={`px-4 py-2 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeMode === 'predictor'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 font-bold shadow-[0_0_15px_rgba(34,211,238,0.15)]'
+                  : 'text-slate-400 hover:text-white'
+              }`}
             >
-              {item.label}
+              <Zap size={13} /> Universal Predictor
             </button>
-          ))}
+            <button
+              onClick={() => setActiveMode('editor')}
+              className={`px-4 py-2 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeMode === 'editor'
+                  ? 'bg-purple-500/20 text-purple-300 border border-purple-400/40 font-bold shadow-[0_0_15px_rgba(168,85,247,0.15)]'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Sliders size={13} /> AI Prediction Editor
+            </button>
+          </div>
         </div>
+
+        {/* ========================================================================= */}
+        {/* MODE 1: UNIVERSAL REACTION PREDICTOR (FOR EVERY COMPOUND IN THE WORLD) */}
+        {/* ========================================================================= */}
+        {activeMode === 'predictor' && (
+          <div className="space-y-4">
+            <form onSubmit={(e) => { e.preventDefault(); handlePredict(reactantsInput); }} className="space-y-3">
+              <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
+                Enter Any Compound or Mixture in the World (Formula, Name, or Equation):
+              </label>
+
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  value={reactantsInput}
+                  onChange={(e) => setReactantsInput(e.target.value)}
+                  placeholder="e.g. Caffeine, Glucose + O2, Benzene + Br2, Fe + O2, HCl + NaOH..."
+                  className="flex-1 text-xs bg-[#0A0B0E] px-4 py-3 border border-slate-800 focus:border-cyan-400 focus:bg-[#0A0B0E] rounded-xl outline-none font-mono text-cyan-200 font-bold shadow-inner"
+                />
+                <button
+                  type="submit"
+                  disabled={loadingPredict}
+                  className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 text-black font-extrabold text-xs uppercase tracking-wider font-mono rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-[0_0_20px_rgba(34,211,238,0.25)]"
+                >
+                  {loadingPredict ? (
+                    <span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Play size={13} className="fill-black" />
+                  )}
+                  Predict Reactions
+                </button>
+              </div>
+            </form>
+
+            {/* Curated compound and reaction templates */}
+            <div className="pt-2 flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
+              <span className="text-slate-500 uppercase tracking-wider">Quick Presets:</span>
+              {universalExamples.map((item) => (
+                <button
+                  key={item.text}
+                  type="button"
+                  onClick={() => { setReactantsInput(item.text); handlePredict(item.text); }}
+                  className="px-2.5 py-1 bg-black/40 border border-slate-800 hover:bg-cyan-950/40 hover:border-cyan-500/40 hover:text-cyan-300 text-slate-400 rounded-lg transition-all cursor-pointer"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* MODE 2: AI PREDICTION EDITOR (RUN EVERY POSSIBLE REACTION FROM INTERNET) */}
+        {/* ========================================================================= */}
+        {activeMode === 'editor' && (
+          <div className="space-y-5">
+            <div className="p-3 bg-purple-950/20 border border-purple-500/30 rounded-xl text-xs text-purple-200 font-sans leading-relaxed">
+              <strong>🔬 AI Prediction Editor Mode:</strong> Configure physical reaction parameters (temperature, pressure, solvent, and catalyst) to run a comprehensive reaction matrix that identifies major products, side reactions, decomposition kinetics, and electron mechanism pathways from internet literature data!
+            </div>
+
+            {/* Reactants input */}
+            <div>
+              <label className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+                Reaction Mixture / Substrate & Reagents:
+              </label>
+              <input
+                type="text"
+                value={editorReactants}
+                onChange={(e) => setEditorReactants(e.target.value)}
+                placeholder="e.g. Ethanol + Acetic Acid, Benzene + Chloromethane, Propene + HBr..."
+                className="w-full text-xs bg-[#0A0B0E] px-4 py-2.5 border border-slate-800 focus:border-purple-400 rounded-xl outline-none font-mono text-purple-200 font-bold"
+              />
+            </div>
+
+            {/* Multi-parameter interactive controls grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 font-mono text-xs">
+              
+              {/* Temperature Slider */}
+              <div className="p-3 bg-black/40 border border-slate-800 rounded-xl space-y-2">
+                <div className="flex justify-between items-center text-[10px]">
+                  <span className="text-slate-400 uppercase font-bold flex items-center gap-1">
+                    <ThermometerSun size={12} className="text-amber-400" /> Temperature:
+                  </span>
+                  <span className="text-cyan-300 font-black">{editorTemp}°C</span>
+                </div>
+                <input
+                  type="range"
+                  min="-78"
+                  max="1000"
+                  step="5"
+                  value={editorTemp}
+                  onChange={(e) => setEditorTemp(Number(e.target.value))}
+                  className="w-full accent-cyan-400 cursor-pointer"
+                />
+                <div className="flex justify-between text-[9px] text-slate-500">
+                  <span>-78°C (Cold)</span>
+                  <span>25°C (RT)</span>
+                  <span>1000°C (Pyrolysis)</span>
+                </div>
+              </div>
+
+              {/* Pressure */}
+              <div className="p-3 bg-black/40 border border-slate-800 rounded-xl space-y-1.5">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Operating Pressure:</span>
+                <select
+                  value={editorPressure}
+                  onChange={(e) => setEditorPressure(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-1.5 text-xs text-white outline-none"
+                >
+                  <option value="0.01 atm (High Vacuum)">0.01 atm (High Vacuum)</option>
+                  <option value="1 atm (Ambient Standard)">1 atm (Ambient Standard)</option>
+                  <option value="10 atm (Moderate Pressure)">10 atm (Moderate Pressure)</option>
+                  <option value="50 atm (High Pressure Autoclave)">50 atm (High Pressure Autoclave)</option>
+                  <option value="200 atm (Industrial Haber-Bosch Scale)">200 atm (Ultra Industrial)</option>
+                </select>
+              </div>
+
+              {/* Solvent */}
+              <div className="p-3 bg-black/40 border border-slate-800 rounded-xl space-y-1.5">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Reaction Solvent:</span>
+                <select
+                  value={editorSolvent}
+                  onChange={(e) => setEditorSolvent(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-1.5 text-xs text-white outline-none"
+                >
+                  <option value="Water (Aqueous H2O)">Water (Aqueous H2O)</option>
+                  <option value="Ethanol (Polar Protic)">Ethanol (Polar Protic)</option>
+                  <option value="Dichloromethane / DCM (Polar Aprotic)">DCM (Polar Aprotic)</option>
+                  <option value="Acetone">Acetone</option>
+                  <option value="Tetrahydrofuran / THF">THF (Ethereal)</option>
+                  <option value="Toluene (Aromatic Nonpolar)">Toluene (Aromatic Nonpolar)</option>
+                  <option value="Neat / Solvent-free">Neat / Solvent-Free</option>
+                  <option value="Supercritical CO2">Supercritical CO2</option>
+                </select>
+              </div>
+
+              {/* Catalyst & Atmosphere */}
+              <div className="p-3 bg-black/40 border border-slate-800 rounded-xl space-y-1.5">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Catalytic Trigger:</span>
+                <select
+                  value={editorCatalyst}
+                  onChange={(e) => setEditorCatalyst(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg p-1.5 text-xs text-white outline-none"
+                >
+                  <option value="None (Uncatalyzed)">None (Uncatalyzed)</option>
+                  <option value="Concentrated H2SO4 (Acid Catalysis)">Acid (H2SO4)</option>
+                  <option value="Sodium Ethoxide (Strong Base)">Base (Alkoxide / OH-)</option>
+                  <option value="Palladium on Carbon / Pd-C">Palladium on Carbon (Pd/C)</option>
+                  <option value="AlCl3 (Lewis Acid)">AlCl3 (Lewis Acid)</option>
+                  <option value="UV Photochemical (hv light)">UV Light (hv)</option>
+                  <option value="Biocatalytic Enzyme">Enzyme Biocatalyst</option>
+                </select>
+              </div>
+
+            </div>
+
+            {/* Run Matrix Button */}
+            <button
+              onClick={handleRunAllPathways}
+              disabled={loadingEditor}
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-500 hover:from-purple-500 hover:to-cyan-400 disabled:opacity-50 text-white font-extrabold text-xs uppercase tracking-wider font-mono transition-all cursor-pointer shadow-[0_0_25px_rgba(168,85,247,0.3)] flex items-center justify-center gap-2"
+            >
+              {loadingEditor ? (
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Zap size={14} className="fill-white" />
+              )}
+              Run Every Possible Reaction (Internet Data / AI Grounding) →
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ERROR DISPLAY */}
-      {error && (
-        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex gap-3 text-rose-800 text-xs">
-          <AlertCircle size={18} className="text-rose-500 shrink-0 mt-0.5" />
+      {(predictError || editorError) && (
+        <div className="bg-rose-950/20 border border-rose-500/40 rounded-xl p-4 flex gap-3 text-rose-200 text-xs font-mono">
+          <AlertCircle size={18} className="text-rose-400 shrink-0 mt-0.5" />
           <div>
-            <h4 className="font-bold">Equation Unbalanced or Solvability Error</h4>
-            <p className="mt-1 opacity-90">{error}</p>
+            <h4 className="font-bold">Reaction Simulation Notice</h4>
+            <p className="mt-1 opacity-90">{predictError || editorError}</p>
           </div>
         </div>
       )}
 
-      {/* LOADING placeholder screen */}
-      {loading && (
-        <div className="bg-[#111318] border border-slate-800 rounded-xl p-12 shadow-sm flex flex-col items-center justify-center text-center">
-          <div className="relative mb-4 flex items-center justify-center">
-            <span className="w-12 h-12 border-2 border-slate-800 border-t-cyan-500 rounded-full animate-spin absolute" />
-            <Sparkles size={20} className="text-cyan-400 animate-pulse" />
-          </div>
-          <h4 className="text-xs font-semibold text-slate-200 animate-pulse">Running chemical balance calculations...</h4>
-          <p className="text-[10px] text-slate-400 mt-1 max-w-sm">
-            Gemini is currently balancing stoichiometry structures, validating enthalpy vectors, and verifying mass conservation scales.
+      {/* LOADING SPINNER */}
+      {(loadingPredict || loadingEditor) && (
+        <div className="bg-[#111318] border border-cyan-500/20 rounded-2xl p-12 text-center space-y-3 font-mono">
+          <div className="w-12 h-12 rounded-full border-2 border-cyan-500/30 border-t-cyan-400 animate-spin mx-auto" />
+          <h4 className="text-sm font-bold text-white">Simulating Reaction Chemistry & Collision Energetics...</h4>
+          <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+            Querying real-world thermodynamic databases, balancing orbital electron shifts, and computing competitive pathways.
           </p>
         </div>
       )}
 
-      {/* RESULTS GRID */}
-      {result && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 select-text">
-          
-          {/* Reaction Equation Flow Block */}
-          <div className="lg:col-span-2 space-y-6">
-            
-            {/* Display Equation summary banner */}
-            <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 shadow-sm">
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-400 bg-cyan-950/30 border border-cyan-900/50 rounded-full mb-3">
-                Balanced Stoichiometric System
+      {/* ========================================================================= */}
+      {/* MODE 1 RESULT: UNIVERSAL PREDICTOR CARD */}
+      {/* ========================================================================= */}
+      {activeMode === 'predictor' && predictResult && !loadingPredict && (
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-6"
+        >
+          {/* Main Balanced Reaction Card */}
+          <div className="bg-gradient-to-r from-cyan-950/30 via-[#111318] to-purple-950/20 border border-cyan-500/30 rounded-2xl p-6 shadow-xl space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 uppercase">
+                {predictResult.reactionType}
               </span>
+              <span className={`px-3 py-1 rounded-full text-xs font-mono font-bold border ${
+                predictResult.thermalType === 'Exothermic' 
+                  ? 'bg-rose-950/40 text-rose-300 border-rose-500/30' 
+                  : 'bg-sky-950/40 text-sky-300 border-sky-500/30'
+              }`}>
+                {predictResult.thermalType} Reaction (ΔH: {predictResult.energyChange})
+              </span>
+            </div>
 
-              <div className="p-4 bg-[#0A0B0E] border border-slate-850 rounded-xl text-center select-all group relative">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono mb-1">Equation (Shorthand)</p>
-                <h2 className="text-xl sm:text-2xl font-serif font-semibold text-white tracking-tight leading-relaxed select-text font-mono" dangerouslySetInnerHTML={{ __html: formatSubscripts(result.balancedEquation) }} />
-              </div>
+            {/* Glowing Equation Display */}
+            <div className="p-4 rounded-xl bg-black/60 border border-cyan-500/30 text-center font-mono select-all shadow-[inset_0_0_20px_rgba(34,211,238,0.05)]">
+              <span className="text-[10px] text-slate-500 block mb-1 uppercase font-bold tracking-wider">Stoichiometrically Balanced Equation</span>
+              <h2 className="text-lg sm:text-2xl font-black text-cyan-300 tracking-tight leading-relaxed">
+                {predictResult.balancedEquation}
+              </h2>
+            </div>
 
-              {/* Grid with side-by-side components reactants and products */}
-              <div className="grid grid-cols-1 md:grid-cols-11 items-center gap-4 mt-6">
-                
-                {/* Reactants list block */}
-                <div className="md:col-span-5 space-y-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500 block mb-1 font-sans">Reactants</span>
-                  {result.equationBalanced.reactants.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center bg-[#0A0B0E]/60 hover:bg-[#0A0B0E] border border-slate-850 rounded-lg p-2 px-3 transition-colors">
-                      <span className="font-mono text-xs font-bold text-slate-300 bg-[#111318] border border-slate-800 rounded px-1.5 py-0.5">
-                        {item.coefficient} ×
-                      </span>
-                      <span className="font-mono text-xs font-bold text-cyan-400 select-all" dangerouslySetInnerHTML={{ __html: formatSubscripts(item.formula) }} />
-                      <span className="text-xs text-slate-400 font-sans font-medium truncate max-w-[140px] text-right" title={item.name}>{item.name}</span>
+            {/* Stoichiometric Breakdown Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              {/* Reactants */}
+              <div className="p-3.5 bg-black/30 border border-slate-800 rounded-xl space-y-2">
+                <span className="text-[10px] font-mono uppercase text-slate-400 font-bold block">Reactants Consumed:</span>
+                <div className="space-y-1.5 font-mono text-xs">
+                  {predictResult.equationBalanced?.reactants?.map((r, i) => (
+                    <div key={i} className="flex justify-between items-center p-2 rounded-lg bg-slate-900/60 border border-slate-800">
+                      <span className="text-white font-bold">{r.coefficient} × {r.formula}</span>
+                      <span className="text-slate-400 text-[11px]">{r.name}</span>
                     </div>
                   ))}
                 </div>
+              </div>
 
-                {/* React icon arrow arrow right divider */}
-                <div className="md:col-span-1 flex justify-center text-slate-500 font-bold text-lg select-none">
-                  <ArrowRight size={20} className="text-cyan-400 transform rotate-90 md:rotate-0" />
-                </div>
-
-                {/* Products list block */}
-                <div className="md:col-span-5 space-y-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500 block mb-1 font-sans">Products</span>
-                  {result.equationBalanced.products.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center bg-cyan-950/10 hover:bg-cyan-950/30 border border-cyan-900/40 rounded-lg p-2 px-3 transition-colors">
-                      <span className="font-mono text-xs font-semibold text-cyan-400 bg-cyan-950/40 border border-cyan-900/60 rounded px-1.5 py-0.5">
-                        {item.coefficient} ×
-                      </span>
-                      <span className="font-mono text-xs font-black text-cyan-400 select-all" dangerouslySetInnerHTML={{ __html: formatSubscripts(item.formula) }} />
-                      <span className="text-xs text-slate-400 font-sans font-medium truncate max-w-[140px] text-right" title={item.name}>{item.name}</span>
+              {/* Products */}
+              <div className="p-3.5 bg-black/30 border border-slate-800 rounded-xl space-y-2">
+                <span className="text-[10px] font-mono uppercase text-emerald-400 font-bold block">Products Formed:</span>
+                <div className="space-y-1.5 font-mono text-xs">
+                  {predictResult.equationBalanced?.products?.map((p, i) => (
+                    <div key={i} className="flex justify-between items-center p-2 rounded-lg bg-emerald-950/20 border border-emerald-500/30">
+                      <span className="text-emerald-300 font-bold">{p.coefficient} × {p.formula}</span>
+                      <span className="text-slate-300 text-[11px]">{p.name}</span>
                     </div>
                   ))}
                 </div>
-
               </div>
             </div>
 
-            {/* Reaction insights block from Gemini */}
-            <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
-              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest border-b border-slate-850 pb-2 mb-3 font-sans">Reaction Mechanisms</h4>
-              <div className="grid grid-cols-1 gap-2">
-                {result.keyInsights.map((insight, idx) => (
-                  <div key={idx} className="flex gap-3 text-xs leading-relaxed text-slate-300 bg-[#0A0B0E]/60 p-2.5 rounded-lg border border-slate-850">
-                    <span className="w-5 h-5 bg-cyan-950/40 border border-cyan-900/60 rounded-full flex items-center justify-center text-cyan-400 font-bold shrink-0 text-[10px]">{idx + 1}</span>
-                    <p className="flex-1 leading-relaxed font-sans font-medium">{insight}</p>
-                  </div>
+            {/* Key Mechanistic Insights */}
+            <div className="p-4 bg-slate-900/40 border border-slate-800 rounded-xl space-y-2 text-xs font-sans leading-relaxed">
+              <span className="text-[10px] font-mono font-bold text-cyan-400 uppercase tracking-wider block">
+                Chemical Insights & Mechanism:
+              </span>
+              <ul className="space-y-1.5 text-slate-300">
+                {predictResult.keyInsights?.map((insight, idx) => (
+                  <li key={idx} className="flex items-start gap-2">
+                    <span className="text-cyan-400 shrink-0 font-bold">→</span>
+                    <span>{insight}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
 
+            {/* Applications & Uses */}
+            {predictResult.uses && predictResult.uses.length > 0 && (
+              <div className="p-3.5 bg-black/30 border border-slate-800 rounded-xl text-xs text-slate-400 font-sans leading-relaxed">
+                <strong className="text-slate-300 font-mono text-[10px] uppercase block mb-1">Industrial & Biological Uses:</strong>
+                <p>{predictResult.uses.join(' • ')}</p>
+              </div>
+            )}
+
+            {/* Switch to Editor Button */}
+            <div className="pt-2 flex justify-end">
+              <button
+                onClick={() => {
+                  setEditorReactants(reactantsInput);
+                  setActiveMode('editor');
+                }}
+                className="px-4 py-2 rounded-xl bg-purple-950/40 hover:bg-purple-900/40 border border-purple-500/40 text-purple-300 font-mono text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Sliders size={13} /> Open in AI Prediction Editor to Run All Pathways →
+              </button>
+            </div>
           </div>
-
-          {/* Thermal Energetics Sidebar Panel */}
-          <div className="space-y-6">
-            
-            {/* Thermochemistry gauge card */}
-            <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 shadow-sm flex flex-col justify-between">
-              <div>
-                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-4 border-b border-slate-855 pb-2">Thermochemistry & Energetics</h4>
-                
-                {/* Big Thermal state block */}
-                <div className={`p-4 rounded-xl border flex items-center gap-3.5 mb-4 ${
-                  result.thermalType === 'Exothermic'
-                    ? 'bg-orange-950/20 border-orange-900/60 text-orange-200'
-                    : result.thermalType === 'Endothermic'
-                      ? 'bg-sky-950/20 border-sky-900/60 text-sky-200'
-                      : 'bg-slate-900 border-slate-800 text-slate-250'
-                }`}>
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                    result.thermalType === 'Exothermic' ? 'bg-orange-600 text-white' : 'bg-sky-500 text-white'
-                  }`}>
-                    {result.thermalType === 'Exothermic' ? <Flame size={18} /> : <ThermometerSun size={18} />}
-                  </div>
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 leading-none">Energetic Flow</span>
-                    <h3 className="text-sm font-bold tracking-tight mt-0.5">{result.thermalType} Reaction</h3>
-                  </div>
-                </div>
-
-                {/* Energy parameters lists */}
-                <div className="space-y-3 font-sans mt-5 leading-normal text-slate-300">
-                  <div className="flex justify-between items-center text-xs py-1 border-b border-slate-850">
-                    <span className="text-slate-400 font-medium">Standard enthalpy dH</span>
-                    <span className="font-mono font-bold text-slate-200 bg-[#0A0B0E] px-2 py-0.5 border border-slate-800 rounded">{result.energyChange}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs py-1 border-b border-slate-850">
-                    <span className="text-slate-400 font-medium">Activation Energy</span>
-                    <span className="font-semibold text-slate-200 bg-[#0A0B0E] px-2 py-0.5 border border-slate-800 rounded">{result.activationEnergy}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs py-1.5 border-b border-slate-850">
-                    <span className="text-slate-400 font-medium">Catalysts / Promoters</span>
-                    <div className="flex gap-1 flex-wrap justify-end">
-                      {result.catalysts.length > 0 && result.catalysts[0] !== 'None' ? (
-                        result.catalysts.map((cat, i) => (
-                          <span key={i} className="text-[9px] font-bold text-cyan-400 bg-cyan-950/40 border border-cyan-900/60 px-1.5 py-0.5 rounded">{cat}</span>
-                        ))
-                      ) : (
-                        <span className="text-[10px] text-slate-500 italic">No external catalyst needed</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center text-xs py-1">
-                    <span className="text-slate-400 font-medium font-sans">Reaction Classification</span>
-                    <span className="font-bold text-cyan-400">{result.reactionType}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Practical applications card */}
-            <div className="bg-[#111318] border border-slate-800 rounded-xl p-5 shadow-sm">
-              <h4 className="text-[10px] font-bold text-slate-550 uppercase tracking-widest border-b border-slate-850 pb-2 mb-3">Applications & Uses</h4>
-              <div className="flex flex-col gap-2 font-sans select-text text-slate-300 text-xs">
-                {result.uses.map((use, i) => (
-                  <div key={i} className="flex gap-2 items-start bg-[#0A0B0E]/60 p-2.5 rounded-lg border border-slate-850">
-                    <Zap size={11} className="text-cyan-400 shrink-0 mt-0.5" />
-                    <p className="font-medium text-slate-300 leading-normal">{use}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-          </div>
-        </div>
+        </motion.div>
       )}
+
+      {/* ========================================================================= */}
+      {/* MODE 2 RESULT: AI PREDICTION EDITOR COMPREHENSIVE MATRIX */}
+      {/* ========================================================================= */}
+      {activeMode === 'editor' && editorResult && !loadingEditor && (
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-6"
+        >
+          {/* 1. PRIMARY / MAJOR REACTION PATHWAY */}
+          <div className="bg-gradient-to-r from-purple-950/30 via-[#111318] to-cyan-950/30 border border-purple-500/30 rounded-2xl p-6 shadow-xl space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-400/40 uppercase">
+                  Primary Pathway: {editorResult.primaryPathway.reactionType}
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  Yield: {editorResult.primaryPathway.yieldPercentage}
+                </span>
+              </div>
+
+              <span className="text-xs font-mono text-slate-400">
+                ΔG: <strong className="text-emerald-400">{editorResult.primaryPathway.gibbsFreeEnergy}</strong> • ΔH: <strong className="text-rose-400">{editorResult.primaryPathway.energyChange}</strong>
+              </span>
+            </div>
+
+            {/* Major Equation */}
+            <div className="p-4 rounded-xl bg-black/60 border border-purple-500/40 text-center font-mono select-all">
+              <span className="text-[10px] text-slate-500 block mb-1 uppercase font-bold">Major Desired Reaction Equation</span>
+              <h3 className="text-lg sm:text-2xl font-black text-purple-200">
+                {editorResult.primaryPathway.balancedEquation}
+              </h3>
+            </div>
+
+            {/* Primary Details Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs">
+              <div className="p-2.5 bg-black/40 border border-slate-800 rounded-lg">
+                <span className="text-[9.5px] text-slate-500 block uppercase">Activation Energy</span>
+                <span className="font-bold text-white">{editorResult.primaryPathway.activationEnergy}</span>
+              </div>
+              <div className="p-2.5 bg-black/40 border border-slate-800 rounded-lg">
+                <span className="text-[9.5px] text-slate-500 block uppercase">Rate Law</span>
+                <span className="font-bold text-cyan-300">{editorResult.primaryPathway.rateLaw}</span>
+              </div>
+              <div className="p-2.5 bg-black/40 border border-slate-800 rounded-lg">
+                <span className="text-[9.5px] text-slate-500 block uppercase">Mechanism Type</span>
+                <span className="font-bold text-purple-300">{editorResult.primaryPathway.mechanismType}</span>
+              </div>
+              <div className="p-2.5 bg-black/40 border border-slate-800 rounded-lg">
+                <span className="text-[9.5px] text-slate-500 block uppercase">Thermal State</span>
+                <span className="font-bold text-amber-300">{editorResult.primaryPathway.thermalType}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. COMPETITIVE & SIDE REACTION PATHWAYS */}
+          {editorResult.competitivePathways && editorResult.competitivePathways.length > 0 && (
+            <div className="bg-[#111318] border border-amber-500/25 rounded-2xl p-6 shadow-sm space-y-4 font-mono">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={18} className="text-amber-400" />
+                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Competitive & Side Reaction Pathways (Taking Data from Internet)
+                </h4>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {editorResult.competitivePathways.map((path, idx) => (
+                  <div key={idx} className="p-4 rounded-xl bg-black/40 border border-slate-800 space-y-2">
+                    <div className="flex justify-between items-start gap-2">
+                      <h5 className="text-xs font-bold text-amber-300">{path.pathwayName}</h5>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-950/60 border border-amber-500/30 text-amber-200">
+                        {path.selectivity}
+                      </span>
+                    </div>
+
+                    <div className="p-2 bg-slate-900/60 rounded border border-slate-800 text-xs text-slate-200">
+                      {path.balancedEquation}
+                    </div>
+
+                    <p className="text-[10px] text-slate-400 font-sans leading-relaxed">
+                      <strong>When Favored:</strong> {path.conditionsFavored}
+                    </p>
+                    <p className="text-[10px] text-rose-300/80 font-sans leading-relaxed">
+                      <strong>Byproduct Risk:</strong> {path.byproductHazards}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 3. STEP-BY-STEP REACTION MECHANISM */}
+          {editorResult.mechanismSteps && editorResult.mechanismSteps.length > 0 && (
+            <div className="bg-[#111318] border border-cyan-500/20 rounded-2xl p-6 space-y-4 font-mono">
+              <div className="flex items-center gap-2">
+                <Activity size={18} className="text-cyan-400" />
+                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Step-by-Step Electron Mechanism & Intermediates
+                </h4>
+              </div>
+
+              <div className="space-y-3">
+                {editorResult.mechanismSteps.map((step) => (
+                  <div key={step.stepNumber} className="flex gap-3 p-3.5 bg-black/30 border border-slate-800 rounded-xl">
+                    <span className="w-7 h-7 rounded-lg bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 flex items-center justify-center text-xs font-black shrink-0">
+                      {step.stepNumber}
+                    </span>
+                    <div className="space-y-1 text-xs">
+                      <h5 className="font-bold text-white">{step.title}</h5>
+                      <p className="text-slate-300 font-sans leading-relaxed">{step.description}</p>
+                      <div className="flex flex-wrap gap-2 text-[10.5px] pt-1 text-cyan-200">
+                        <span>Electron Shift: <strong className="text-cyan-300">{step.electronMovement}</strong></span>
+                        <span className="text-slate-600">•</span>
+                        <span>Intermediate: <strong className="text-purple-300">{step.intermediateSpecies}</strong></span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 4. THERMAL DECOMPOSITION & LABORATORY SAFETY */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-xs">
+            {/* Decomposition */}
+            {editorResult.decompositionPathway && (
+              <div className="p-5 bg-[#111318] border border-rose-500/30 rounded-2xl space-y-2">
+                <span className="text-[10px] text-rose-400 uppercase font-bold flex items-center gap-1">
+                  <Flame size={13} /> Thermal Decomposition & Pyrolysis:
+                </span>
+                <p className="text-white font-bold">{editorResult.decompositionPathway.balancedEquation}</p>
+                <p className="text-slate-400 text-[11px] font-sans">
+                  <strong>Threshold:</strong> {editorResult.decompositionPathway.tempThreshold}
+                </p>
+                <p className="text-rose-300 text-[11px] font-sans">
+                  <strong>Hazard:</strong> {editorResult.decompositionPathway.hazardWarning}
+                </p>
+              </div>
+            )}
+
+            {/* Laboratory Safety */}
+            {editorResult.laboratorySafety && (
+              <div className="p-5 bg-[#111318] border border-slate-800 rounded-2xl space-y-2 font-sans">
+                <span className="text-[10px] text-cyan-400 font-mono uppercase font-bold flex items-center gap-1">
+                  <ShieldAlert size={13} /> Lab Safety & Quenching Matrix:
+                </span>
+                <p className="text-xs text-slate-300">
+                  <strong>Exotherm Risk:</strong> {editorResult.laboratorySafety.exothermHazard}
+                </p>
+                <p className="text-xs text-slate-300">
+                  <strong>Quenching Protocol:</strong> {editorResult.laboratorySafety.quenchingProtocol}
+                </p>
+                <div className="flex flex-wrap gap-1 pt-1 font-mono text-[10px]">
+                  {editorResult.laboratorySafety.ppeRequired?.map((ppe, i) => (
+                    <span key={i} className="px-2 py-0.5 rounded bg-black/60 border border-slate-800 text-slate-300">
+                      ✓ {ppe}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 5. INTERNET LITERATURE GROUNDING */}
+          {editorResult.internetGroundingData && (
+            <div className="p-4 bg-black/40 border border-slate-800 rounded-xl text-xs font-mono text-slate-400 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <div>
+                <span className="text-cyan-400 uppercase font-bold text-[10px] block">Literature Sources & Grounding:</span>
+                <span>{editorResult.internetGroundingData.literatureSources?.join(' • ')}</span>
+              </div>
+              <span className="text-[10px] text-slate-500">{editorResult.internetGroundingData.industrialRelevance}</span>
+            </div>
+          )}
+
+        </motion.div>
+      )}
+
     </div>
   );
-}
-
-// Utility icon
-function FlaskConicalIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M10 2v7.5" />
-      <path d="M14 2v7.5" />
-      <path d="M8.5 2h7" />
-      <path d="m14 9.5 5.5 10c1.2 2.1-.3 4.5-2.7 4.5H7.2c-2.4 0-3.9-2.4-2.7-4.5l5.5-10" />
-      <path d="M6 17c1.3.8 2.6.4 4 0s2.7-.8 4 0l1 .5" />
-    </svg>
-  );
-}
-
-// Simple subscript mapper HTML utility (e.g. converting CO2 to CO<sub>2</sub>)
-function formatSubscripts(eq: string) {
-  if (!eq) return '';
-  return eq.replace(/([A-Za-z])(\d+)/g, '$1<sub>$2</sub>');
 }

@@ -77,6 +77,92 @@ export interface ReactionDetail {
   uses: string[];
 }
 
+export interface CompetitivePathway {
+  pathwayName: string;
+  balancedEquation: string;
+  conditionsFavored: string;
+  byproductHazards: string;
+  selectivity: string;
+  mechanism: string;
+}
+
+export interface MechanismStep {
+  stepNumber: number;
+  title: string;
+  description: string;
+  electronMovement: string;
+  intermediateSpecies: string;
+}
+
+export interface ReactionMatrixResult {
+  reactantsInput: string;
+  conditionsUsed: {
+    temperature: string;
+    pressure: string;
+    solvent: string;
+    catalyst: string;
+    atmosphere: string;
+  };
+  primaryPathway: {
+    balancedEquation: string;
+    reactionType: string;
+    yieldPercentage: string;
+    thermalType: 'Exothermic' | 'Endothermic' | 'Neutral';
+    energyChange: string;
+    gibbsFreeEnergy: string;
+    activationEnergy: string;
+    rateLaw: string;
+    mechanismType: string;
+    products: { formula: string; name: string; state: string; coefficient: number }[];
+  };
+  competitivePathways: CompetitivePathway[];
+  decompositionPathway?: {
+    tempThreshold: string;
+    balancedEquation: string;
+    hazardWarning: string;
+  };
+  mechanismSteps: MechanismStep[];
+  laboratorySafety: {
+    ppeRequired: string[];
+    exothermHazard: string;
+    ventilationRequired: boolean;
+    quenchingProtocol: string;
+  };
+  internetGroundingData: {
+    literatureSources: string[];
+    industrialRelevance: string;
+  };
+}
+
+export interface SynthesizedCompound {
+  id: string;
+  name: string;
+  formula: string;
+  synthesisEquation: string;
+  conditions: string;
+  state: 'Gas' | 'Liquid' | 'Solid' | 'Aqueous';
+  elementsUsed: string[];
+  molarMass: string;
+  smiles?: string;
+  uses: string;
+  safetyNote?: string;
+}
+
+export interface WorldwideRankingItem {
+  id: string;
+  rank: number;
+  name: string;
+  subtitle: string;
+  category: 'scholar' | 'chemical' | 'laureate' | 'institution';
+  country?: string;
+  countryFlag?: string;
+  metricValue: string;
+  metricLabel: string;
+  details: string;
+  internetSource?: string;
+  tags: string[];
+}
+
 export interface ExplainResponse {
   chemicalName: string;
   studentExplanation: string;
@@ -84,6 +170,8 @@ export interface ExplainResponse {
   safetySummary: string;
   funFact: string;
 }
+
+export type UserRole = 'student' | 'teacher' | 'admin' | 'guest';
 
 export interface User {
   id: string;
@@ -95,7 +183,10 @@ export interface User {
   quizAttempts: number;
   badges: string[];
   joinedAt: string;
-  role: 'guest' | 'user' | 'admin';
+  role: UserRole;
+  roll_no?: string;
+  student_class?: string;
+  section?: string;
 }
 
 export interface QuizQuestion {
@@ -114,5 +205,135 @@ export interface LeaderboardEntry {
   level: number;
   quizAttempts: number;
   badges: string[];
+}
+
+// ==========================================
+// ADAPTIVE LEARNING & STUDENT ANALYTICS MODELS
+// ==========================================
+
+export type ConceptDifficulty = 'easy' | 'medium' | 'hard';
+export type MasteryTrend = 'up' | 'stable' | 'down';
+
+export interface ConceptMastery {
+  student_id: string;
+  concept_id: string;
+  concept_name: string;
+  mastery_score: number; // 0 to 100
+  accuracy: number; // Percentage 0 to 100
+  attempts: number;
+  correct_attempts: number;
+  current_difficulty: ConceptDifficulty;
+  last_attempt: string;
+  trend: MasteryTrend;
+}
+
+export interface StudentAttempt {
+  attempt_id: string;
+  student_id: string;
+  question_id: string;
+  concept_id: string;
+  selected_answer: string;
+  correct: boolean;
+  difficulty: ConceptDifficulty;
+  timestamp: string;
+}
+
+export interface Recommendation {
+  id: string;
+  student_id: string;
+  concept_id: string;
+  concept_name: string;
+  recommendation_type: 'next_lesson' | 'practice_set' | 'quiz' | 'revision' | 'explanation';
+  recommended_content: string;
+  difficulty: ConceptDifficulty;
+  reason: string;
+  created_at: string;
+}
+
+export interface StudentProfile {
+  student_id: string;
+  name: string;
+  class: string;
+  roll_no?: string;
+  section?: string;
+  overall_mastery: number; // 0 to 100
+  streak: number; // days
+  total_questions: number;
+  total_correct: number;
+  last_active: string;
+  masteries: Record<string, ConceptMastery>; // conceptId -> ConceptMastery
+  recommendations: Recommendation[];
+  attemptsHistory: StudentAttempt[];
+}
+
+export interface ClassSummary {
+  class_id: string;
+  class_name: string;
+  total_students: number;
+  average_mastery: number;
+  average_quiz_accuracy: number;
+  total_questions_attempted: number;
+  most_mastered_concepts: { concept_id: string; concept_name: string; average_mastery: number }[];
+  most_difficult_concepts: { concept_id: string; concept_name: string; average_mastery: number }[];
+  weak_concepts_ranked: { concept_id: string; concept_name: string; average_mastery: number; student_struggle_count: number }[];
+  students_needing_attention: {
+    student_id: string;
+    name: string;
+    class: string;
+    overall_mastery: number;
+    accuracy: number;
+    issue_type: 'Needs additional practice' | 'Requires concept review' | 'Low recent mastery' | 'Declining performance';
+    critical_concept: string;
+    recommended_intervention: string;
+  }[];
+  ai_insights: string[];
+}
+
+export interface FeatureActivityLog {
+  id: string;
+  student_id: string;
+  feature_id: 'explorer' | 'periodic' | 'reaction' | 'phmeter' | 'chemist' | 'quiz' | 'adaptive_practice' | 'analytics' | 'leaderboard';
+  feature_name: string;
+  action: string;
+  category: 'Laboratory' | 'Calculations' | 'Diagnostics' | 'AI Consultation' | 'Assessment' | 'Exploration';
+  timestamp: string;
+  xpEarned: number;
+}
+
+export interface DailyLoginRecord {
+  date: string; // YYYY-MM-DD
+  loginTime: string;
+  streakCount: number;
+  bonusClaimed: boolean;
+  questionsSolved: number;
+  featuresUsed: string[];
+  sessionMinutes: number;
+}
+
+export interface Assignment {
+  id: string;
+  title: string;
+  concept_id: string;
+  concept_name: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  assigned_by: string; // Teacher name
+  target_type: 'all' | 'specific_students' | 'specific_class';
+  target_student_ids: string[];
+  target_class: string;
+  question_count: number;
+  due_date: string;
+  instructions: string;
+  created_at: string;
+  completed_by: string[]; // array of student_ids who completed it
+}
+
+export interface ChatMessage {
+  id: string;
+  sender: 'user' | 'assistant';
+  text: string;
+  timestamp: string;
+  suggestions?: string[];
+  stepByStepSolution?: string[];
+  concept_id?: string;
 }
 

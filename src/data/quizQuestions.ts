@@ -1,6 +1,17 @@
 import { QuizQuestion } from '../types';
+import { EXPANDED_100_CHEMISTRY_QUESTIONS } from './expanded100Questions';
+
+const convertedExpandedQuestions: QuizQuestion[] = EXPANDED_100_CHEMISTRY_QUESTIONS.map(q => ({
+  id: q.id,
+  question: q.question,
+  options: q.options,
+  correctAnswer: q.correctAnswer,
+  difficulty: q.difficulty,
+  topic: q.topic
+}));
 
 export const initialQuestions: QuizQuestion[] = [
+  ...convertedExpandedQuestions,
   // Organic Chemistry
   {
     id: 'org_1',
