@@ -769,9 +769,9 @@ Built as a student innovation project focused on:
 **Team Members**
 
 * Prantik Das
-* Ishita Parvin
-* Soumodip Khalko
-* Priyajeet Ghosh
+* Agnidipta sarkar
+* Shruti Saha
+* Kuntal Banerjee
 
 ---
 
